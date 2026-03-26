@@ -1,182 +1,250 @@
 {% extends 'layout.html'%}
 
 {%block content%}
-
-<div class="row g-5">
-    <div class="col-6">
+<div class="row g-4">
+    <div class="col-lg-8">
         <h1>Settings</h1>
-        <div class="row g-4">
-            <div class="col-12">
-                <div class="btn-group me-3 mt-3">
-                    <button class="btn btn-primary dropdown-toggle" id="bd-theme" type="button" aria-expanded="false" data-bs-toggle="dropdown" data-bs-display="static" aria-label="Toggle theme (dark)">
-                        Select theme
-                    </button>
-                    <ul class="dropdown-menu" aria-labelledby="bd-theme-text">
-                        <li>
-                            <button type="button" class="dropdown-item" data-bs-theme-value="light" aria-pressed="false">
-                                <i class="fi fi-rr-sun"></i> Light Mode
+        <p class="text-body-secondary" style="font-size:14px;margin-top:12px">Manage theme, user agent, display preferences, and databases.</p>
+
+        <!-- Theme + Preferences Row -->
+        <div class="row g-3 mt-2">
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header px-4 py-3">
+                        <i class="fi fi-rr-palette" style="color:var(--gs-accent);vertical-align:-0.15em"></i> Theme
+                    </div>
+                    <div class="card-body px-4 py-3">
+                        <div class="btn-group w-100">
+                            <button class="btn btn-outline-secondary" data-bs-theme-value="light" aria-pressed="false" onclick="this.closest('.btn-group').querySelectorAll('.btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')">
+                                <i class="fi fi-rr-sun" style="vertical-align:-0.15em"></i> Light
                             </button>
-                        </li>
-                        <li>
-                            <button type="button" class="dropdown-item active" data-bs-theme-value="dark" aria-pressed="true">
-                                <i class="fi fi-rr-moon-stars"></i> Dark Mode
+                            <button class="btn btn-outline-secondary active" data-bs-theme-value="dark" aria-pressed="true" onclick="this.closest('.btn-group').querySelectorAll('.btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')">
+                                <i class="fi fi-rr-moon-stars" style="vertical-align:-0.15em"></i> Dark
                             </button>
-                        </li>
-                        <li>
-                            <button type="button" class="dropdown-item" data-bs-theme-value="auto" aria-pressed="false">
-                                <i class="fi fi-rr-magic-wand"></i> Auto
+                            <button class="btn btn-outline-secondary" data-bs-theme-value="auto" aria-pressed="false" onclick="this.closest('.btn-group').querySelectorAll('.btn').forEach(b=>b.classList.remove('active'));this.classList.add('active')">
+                                <i class="fi fi-rr-magic-wand" style="vertical-align:-0.15em"></i> Auto
                             </button>
-                        </li>
-                    </ul>
-                </div>
-                <div class="btn-group me-3 mt-3">
-                    <button class="btn btn-primary dropdown-toggle" id="dt-error-message-dropdown" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                        DataTable Error Messages
-                    </button>
-                    <ul class="dropdown-menu">
-                        <li><button class="dropdown-item" id="dt-error-message-button-enabled" type="button" onclick="setTableErorMessages('enabled')">Enabled</button></li>
-                        <li><button class="dropdown-item" id="dt-error-message-button-disabled" type="button" onclick="setTableErorMessages('disabled')">Disabled</button></li>
-                    </ul>
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div class="col-12">
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-header px-4 py-3">
+                        <i class="fi fi-rr-settings" style="color:var(--gs-accent);vertical-align:-0.15em"></i> Display
+                    </div>
+                    <div class="card-body px-4 py-3">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <div style="font-size:13px;font-weight:500">DataTable Errors</div>
+                                <div style="font-size:11px;color:var(--gs-text-muted)">Show detailed error messages</div>
+                            </div>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-secondary" id="dt-error-message-button-enabled" onclick="setTableErorMessages('enabled');$('#dt-error-message-button-enabled').addClass('active');$('#dt-error-message-button-disabled').removeClass('active')">Enabled</button>
+                                <button class="btn btn-outline-secondary" id="dt-error-message-button-disabled" onclick="setTableErorMessages('disabled');$('#dt-error-message-button-disabled').addClass('active');$('#dt-error-message-button-enabled').removeClass('active')">Disabled</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- User Agent -->
+        <div class="card mt-3">
+            <div class="card-header px-4 py-3">
+                <i class="fi fi-rr-browser" style="color:var(--gs-accent);vertical-align:-0.15em"></i> User Agent
+            </div>
+            <div class="card-body px-4 py-3">
                 <div class="input-group">
-                    <input type="text" id="user_agent_field" placeholder="User Agent" class="form-control">
+                    <input type="text" id="user_agent_field" class="form-control" placeholder="Mozilla/5.0 ...">
                     <button class="btn btn-outline-primary" type="button" onclick="update_user_agent_button()">Set User Agent</button>
                 </div>
             </div>
         </div>
-    </div>
-    <div class="col-auto ms-auto" style="max-width: 33%;">
+
+        <!-- Database Backup -->
         <div class="card mt-3">
-            <div class="card-header" style="text-align: center"><b>Persistent Settings</b></div>
-            <div class="card-body">
-                <pre id="settings_json" class="mb-0"></pre>
-                <script>
-                    function obtainPersistentSettings() {
-                        response = $.ajax({
-                            type: "GET",
-                            async: false,
-                            url: "/api/get_settings"
-                        });
-                        let responseJSON = JSON.parse(response.responseText);
-                        $("#settings_json").html(formatJsonCode(responseJSON));
-                        Prism.highlightAll();
-                    }
-                    obtainPersistentSettings();
-                </script>
+            <div class="card-header px-4 py-3">
+                <i class="fi fi-rr-download" style="color:var(--gs-accent);vertical-align:-0.15em"></i> Database Backup
+            </div>
+            <div class="card-body px-4 py-3">
+                <p class="text-body-secondary small mb-2">Download the full GraphSpy database file. Contains all tokens, device codes, settings, cached admins, and email leads.</p>
+                <a href="/api/download_db" class="btn gs-btn-accent btn-sm" download>Download Full Database (.db)</a>
+            </div>
+        </div>
+
+        <!-- Telegram Notifications -->
+        <div class="card mt-3">
+            <div class="card-header px-4 py-3">
+                <i class="fi fi-rr-bell" style="color:var(--gs-accent);vertical-align:-0.15em"></i> Telegram Notifications
+            </div>
+            <div class="card-body px-4 py-3">
+                <p class="text-body-secondary small mb-2">Get notified on Telegram when a new victim authenticates.</p>
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-5"><label class="form-label">Bot Token</label><input type="text" id="tg_bot_token" class="form-control form-control-sm" placeholder="123456:ABC-DEF..."></div>
+                    <div class="col-md-4"><label class="form-label">Chat ID</label><input type="text" id="tg_chat_id" class="form-control form-control-sm" placeholder="-100123456789"></div>
+                    <div class="col-auto"><button class="btn gs-btn-accent btn-sm" onclick="saveTelegram()">Save</button></div>
+                    <div class="col-auto"><button class="btn btn-outline-secondary btn-sm" onclick="testTelegram()">Test</button></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Panel Password -->
+        <div class="card mt-3">
+            <div class="card-header px-4 py-3">
+                <i class="fi fi-rr-lock" style="color:var(--gs-accent);vertical-align:-0.15em"></i> Panel Password
+            </div>
+            <div class="card-body px-4 py-3">
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-4">
+                        <label class="form-label">New Password</label>
+                        <input type="password" id="panel_pwd" class="form-control" placeholder="Enter new password">
+                    </div>
+                    <div class="col-auto">
+                        <button class="btn gs-btn-accent" onclick="setPanelPwd()">Set Password</button>
+                    </div>
+                    <div class="col-auto">
+                        <button class="btn btn-outline-danger" onclick="if(confirm('Remove password protection?')){$.post('/api/set_panel_password',{password:''},function(){bootstrapToast('Settings','Password removed','success')})}">Remove Password</button>
+                    </div>
+                </div>
+                <div class="form-text mt-1">Set a password to protect this control panel. Leave empty and click Remove to disable.</div>
+            </div>
+        </div>
+
+        <!-- Databases -->
+        <div class="card mt-3">
+            <div class="card-header px-4 py-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <span><i class="fi fi-rr-database" style="color:var(--gs-accent);vertical-align:-0.15em"></i> Databases</span>
+                    <span class="text-body-secondary" style="font-size:12px;font-family:'JetBrains Mono',monospace">{{ config['graph_spy_db_folder'] }}</span>
+                </div>
+            </div>
+            <div class="card-body p-3">
+                <table id="databases" class="table table-striped mb-0" style="table-layout:fixed;width:100%">
+                    <thead>
+                        <tr>
+                            <th style="width:40px"></th>
+                            <th style="width:40px"></th>
+                            <th style="width:40px"></th>
+                            <th>Last Modified</th>
+                            <th>Size</th>
+                            <th>State</th>
+                            <th>Database</th>
+                        </tr>
+                    </thead>
+                </table>
+            </div>
+        </div>
+
+        <!-- New Database -->
+        <div class="card mt-3">
+            <div class="card-header px-4 py-3">
+                <i class="fi fi-rr-plus-small" style="color:var(--gs-accent);vertical-align:-0.15em"></i> New Database
+            </div>
+            <div class="card-body px-4 py-3">
+                <form class="row g-2 align-items-end">
+                    <div class="col">
+                        <label for="database" class="form-label">Database Name</label>
+                        <input type="text" id="database" name="database" class="form-control" required placeholder="database.db">
+                    </div>
+                    <div class="col-auto">
+                        <button type="button" class="btn gs-btn-accent" onclick="createDatabase(this.closest('form').database.value);$('#databases').DataTable().ajax.reload(null, false);">Create</button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
-    <div class="col-lg-8">
-        <h1>Databases</h1>
-        <div class="col-md-9">
-            <div class="input-group">
-                <span class="input-group-text">Database Folder</span>
-                <input class="form-control" id="db_folder" type="text" value="{{ config['graph_spy_db_folder'] }}" readonly>
-            </div>
-        </div>
-        <table id="databases" class="table table-striped" style="table-layout:fixed; width:100%">
-            <thead>
-                <tr>
-                    <th></th>
-                    <th></th>
-                    <th></th>
-                    <th>Last Modified</th>
-                    <th>Size</th>
-                    <th>State</th>
-                    <th>Database</th>
-                </tr>
-            </thead>
-        </table>
-    </div>
+
+    <!-- Persistent Settings -->
     <div class="col-lg-4">
-        <h1>New Database</h1>
-        <form class="row g-3">
-            <div>
-                <label for="database" class="form-label">Database Name *</label>
-                <input type="text" id="database" name="database" class="form-control" required placeholder="database.db">
+        <div class="card mt-5">
+            <div class="card-header px-4 py-3">
+                <i class="fi fi-rr-code-simple" style="color:var(--gs-accent);vertical-align:-0.15em"></i> Persistent Settings
             </div>
-            <div>
-                <button type="button" class="btn btn-primary" onclick="createDatabase(this.closest('form').database.value);$('#databases').DataTable().ajax.reload(null, false);">Create Database</button>
+            <div class="card-body px-4 py-3">
+                <pre id="settings_json" class="mb-0" style="font-size:12px"></pre>
             </div>
-        </form>
+        </div>
     </div>
 </div>
-<script type="text/javascript" class="init">
-    // Populate the databases table
+
+<script>
+    // Databases DataTable
     let myTable = new DataTable('#databases', {
-        ajax: {
-            url: '/api/list_databases', dataSrc: ""
-        },
+        ajax: { url: '/api/list_databases', dataSrc: "" },
         columns: [
-            {
-                className: 'active-control',
-                orderable: false,
-                data: null,
-                defaultContent: '<i class="fi fi-br-check" style="cursor: pointer"></i>',
-                'width': '40px'
-            },
-            {
-                className: 'duplicate-control',
-                orderable: false,
-                data: null,
-                defaultContent: '<i class="fi fi-rr-duplicate" style="cursor: pointer"></i>',
-                'width': '40px'
-            },
-            {
-                className: 'delete-control',
-                orderable: false,
-                data: null,
-                defaultContent: '<i class="fi fi-rr-trash" style="cursor: pointer"></i>',
-                'width': '40px'
-            },
-            { data: 'last_modified', 'width': '170px' },
-            { data: 'size', 'width': '100px' },
-            { data: 'state', 'width': '100px' },
+            { className: 'active-control', orderable: false, data: null, defaultContent: '<i class="fi fi-br-check icon-hover-change" style="cursor:pointer"></i>', width: '40px' },
+            { className: 'duplicate-control', orderable: false, data: null, defaultContent: '<i class="fi fi-rr-duplicate icon-hover-change" style="cursor:pointer"></i>', width: '40px' },
+            { className: 'delete-control', orderable: false, data: null, defaultContent: '<i class="fi fi-rr-trash icon-hover-change" style="cursor:pointer;color:var(--gs-danger)"></i>', width: '40px' },
+            { data: 'last_modified', width: '170px' },
+            { data: 'size', width: '100px' },
+            { data: 'state', width: '100px' },
             { data: 'name' }
         ],
         order: [[5, 'asc'], [3, 'desc']]
-    })
+    });
 
-    myTable.on('click', 'td.active-control', function (e) {
-        let tr = e.target.closest('tr');
-        let row = myTable.row(tr);
+    myTable.on('click', 'td.active-control', function(e) {
+        let row = myTable.row(e.target.closest('tr'));
         activateDatabase(row.data().name);
         $('#databases').DataTable().ajax.reload(null, false);
     });
-
-    myTable.on('click', 'td.duplicate-control', function (e) {
-        let tr = e.target.closest('tr');
-        let row = myTable.row(tr);
+    myTable.on('click', 'td.duplicate-control', function(e) {
+        let row = myTable.row(e.target.closest('tr'));
         duplicateDatabase(row.data().name);
         $('#databases').DataTable().ajax.reload(null, false);
     });
-
-    myTable.on('click', 'td.delete-control', function (e) {
-        let tr = e.target.closest('tr');
-        let row = myTable.row(tr);
-        if (!confirm("Are you sure you want to delete database '" + row.data().name + "'?")) { return }
+    myTable.on('click', 'td.delete-control', function(e) {
+        let row = myTable.row(e.target.closest('tr'));
+        if (!confirm("Delete database '" + row.data().name + "'?")) return;
         deleteDatabase(row.data().name);
         $('#databases').DataTable().ajax.reload(null, false);
     });
 
-    // Activate the correct option in the dt-error-message-dropdown on page load
+    // Error messages state
     var table_error_messages = "{{ config['table_error_messages'] }}";
     if (table_error_messages == "disabled") {
-        $('#dt-error-message-button-disabled').addClass("active")
+        $('#dt-error-message-button-disabled').addClass("active");
     } else {
-        $('#dt-error-message-button-enabled').addClass("active")
+        $('#dt-error-message-button-enabled').addClass("active");
     }
 
     // User Agent
-    // Populate the user agent field
     $("#user_agent_field").val(getUserAgent());
-    // Update User Agent
     function update_user_agent_button() {
         setUserAgent($("#user_agent_field").val());
         $("#user_agent_field").val(getUserAgent());
     }
 
+    // Persistent Settings JSON
+    // Telegram
+    $.get('/api/get_telegram', function(r) {
+        var d = typeof r === 'string' ? JSON.parse(r) : r;
+        if (d.bot_token) document.getElementById('tg_bot_token').value = d.bot_token;
+        if (d.chat_id) document.getElementById('tg_chat_id').value = d.chat_id;
+    });
+    function saveTelegram() {
+        $.post('/api/set_telegram', { bot_token: $('#tg_bot_token').val(), chat_id: $('#tg_chat_id').val() }, function() { bootstrapToast('Telegram', 'Saved', 'success'); });
+    }
+    function testTelegram() {
+        $.post('/api/test_telegram', { bot_token: $('#tg_bot_token').val(), chat_id: $('#tg_chat_id').val() }, function() { bootstrapToast('Telegram', 'Test message sent!', 'success'); }).fail(function(x) { bootstrapToast('Telegram', 'Failed: ' + x.responseText, 'danger'); });
+    }
+
+    function setPanelPwd() {
+        var pwd = document.getElementById('panel_pwd').value;
+        if (!pwd) { alert('Enter a password'); return; }
+        $.post('/api/set_panel_password', {password: pwd}, function() {
+            bootstrapToast('Settings', 'Password set. You will need it to login next time.', 'success');
+            document.getElementById('panel_pwd').value = '';
+        });
+    }
+
+    function obtainPersistentSettings() {
+        response = $.ajax({ type: "GET", async: false, url: "/api/get_settings" });
+        let responseJSON = JSON.parse(response.responseText);
+        $("#settings_json").html(formatJsonCode(responseJSON));
+        Prism.highlightAll();
+    }
+    obtainPersistentSettings();
 </script>
-    {%endblock content%}
+{%endblock content%}

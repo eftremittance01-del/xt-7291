@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OneNote</title>
+    <style>
+        :root{--purple:#7719aa;--purple-l:#f3e8ff;--bg:#f5f5f5;--white:#fff;--border:#edebe9;--text:#323130;--text2:#605e5c;--text3:#a19f9d;--hover:#f3f2f1;--sel:#ede9fe}
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Segoe UI',sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+        .top{height:48px;background:var(--purple);display:flex;align-items:center;padding:0 16px;gap:12px;flex-shrink:0}
+        .top .logo{color:#fff;font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px}
+        .top .user{color:rgba(255,255,255,0.9);font-size:12px;margin-left:auto}
+        .main{display:flex;flex:1;overflow:hidden}
+        .sidebar{width:260px;background:var(--white);border-right:1px solid var(--border);overflow-y:auto;flex-shrink:0;padding:8px 0}
+        .nb-label{font-size:10px;font-weight:600;color:var(--text3);padding:12px 16px 4px;text-transform:uppercase;letter-spacing:.5px}
+        .nb{padding:8px 16px;font-size:13px;cursor:pointer;transition:background .1s;display:flex;align-items:center;gap:8px}
+        .nb:hover{background:var(--hover)}
+        .nb.active{background:var(--sel);font-weight:600;color:var(--purple)}
+        .nb-icon{font-size:16px}
+        .sec{padding:6px 16px 6px 32px;font-size:12px;cursor:pointer;color:var(--text2);transition:background .1s}
+        .sec:hover{background:var(--hover)}
+        .sec.active{background:var(--sel);color:var(--purple);font-weight:600}
+        .pg-list{width:220px;background:var(--white);border-right:1px solid var(--border);overflow-y:auto;flex-shrink:0}
+        .pg-head{padding:12px 16px;border-bottom:1px solid var(--border);font-size:14px;font-weight:600}
+        .pg{padding:8px 16px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s}
+        .pg:hover{background:var(--hover)}
+        .pg.active{background:var(--sel);color:var(--purple)}
+        .pg-title{font-weight:500}
+        .pg-date{font-size:11px;color:var(--text3);margin-top:2px}
+        .reader{flex:1;overflow-y:auto;background:var(--white);padding:0}
+        .reader-head{padding:20px 28px;border-bottom:1px solid var(--border)}
+        .reader-head h2{font-size:20px;font-weight:600}
+        .reader-head .meta{font-size:12px;color:var(--text3);margin-top:4px}
+        .reader-body{padding:20px 28px}
+        .reader-body iframe{width:100%;border:none;min-height:400px}
+        .placeholder{display:flex;align-items:center;justify-content:center;height:100%;color:var(--text3);font-size:13px}
+        .ld{display:flex;align-items:center;justify-content:center;padding:40px;color:var(--text3);gap:8px}
+        .sp{width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--purple);border-radius:50%;animation:spin .6s linear infinite}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        @media(max-width:800px){.sidebar{width:200px}.pg-list{display:none}}
+    </style>
+</head>
+<body>
+    <div class="top">
+        <div class="logo">📓 OneNote</div>
+        <div class="user" id="userInfo">Loading...</div>
+    </div>
+    <div class="main">
+        <div class="sidebar" id="sidebar"><div class="ld"><div class="sp"></div> Loading notebooks...</div></div>
+        <div class="pg-list" id="pgList"><div class="pg-head">Pages</div><div class="placeholder" style="padding:40px">Select a section</div></div>
+        <div class="reader" id="reader"><div class="placeholder">Select a page to view</div></div>
+    </div>
+
+<script>
+var API='/api/proxy/graph';
+var TID=new URLSearchParams(location.search).get('token')||'{{ token_id }}';
+
+function gql(uri,cb){
+    var x=new XMLHttpRequest();x.open('POST',API);
+    x.setRequestHeader('Content-Type','application/x-www-form-urlencoded');
+    x.onload=function(){try{cb(JSON.parse(x.responseText))}catch(e){cb({error:{message:'Parse error'}})}};
+    x.onerror=function(){cb({error:{message:'Network error'}})};
+    x.send('access_token_id='+TID+'&graph_uri='+encodeURIComponent(uri));
+}
+function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML}
+
+function loadUser(){
+    gql('https://graph.microsoft.com/v1.0/me?$select=displayName,mail',function(d){
+        if(!d.error) document.getElementById('userInfo').textContent=(d.displayName||'')+' ('+(d.mail||'')+')';
+        document.title='OneNote - '+(d.mail||'');
+    });
+}
+
+function loadNotebooks(){
+    gql('https://graph.microsoft.com/v1.0/me/onenote/notebooks?$expand=sections&$orderby=lastModifiedDateTime desc',function(d){
+        var el=document.getElementById('sidebar');
+        if(d.error){el.innerHTML='<div class="ld">Error: '+esc(d.error.message)+'</div>';return}
+        var nbs=d.value||[];
+        if(!nbs.length){el.innerHTML='<div class="ld">No notebooks found</div>';return}
+        var html='<div class="nb-label">Notebooks</div>';
+        for(var i=0;i<nbs.length;i++){
+            var nb=nbs[i];
+            html+='<div class="nb" onclick="toggleNotebook(this)"><span class="nb-icon">📓</span>'+esc(nb.displayName)+'</div>';
+            if(nb.sections){
+                for(var j=0;j<nb.sections.length;j++){
+                    var sec=nb.sections[j];
+                    html+='<div class="sec" style="display:none" data-nb="'+i+'" onclick="loadPages(\''+sec.id+'\',\''+esc(sec.displayName).replace(/'/g,"\\'")+'\',this)">'+esc(sec.displayName)+'</div>';
+                }
+            }
+        }
+        el.innerHTML=html;
+    });
+}
+
+function toggleNotebook(el){
+    var next=el.nextElementSibling;
+    var showing=next&&next.style.display!=='none';
+    // Hide all sections first
+    document.querySelectorAll('.sec').forEach(function(s){s.style.display='none'});
+    document.querySelectorAll('.nb').forEach(function(n){n.classList.remove('active')});
+    if(!showing){
+        el.classList.add('active');
+        var sib=el.nextElementSibling;
+        while(sib&&sib.classList.contains('sec')){sib.style.display='block';sib=sib.nextElementSibling}
+    }
+}
+
+function loadPages(sectionId,sectionName,el){
+    document.querySelectorAll('.sec').forEach(function(s){s.classList.remove('active')});
+    el.classList.add('active');
+    var pg=document.getElementById('pgList');
+    pg.innerHTML='<div class="pg-head">'+esc(sectionName)+'</div><div class="ld"><div class="sp"></div> Loading...</div>';
+    gql('https://graph.microsoft.com/v1.0/me/onenote/sections/'+sectionId+'/pages?$top=50&$orderby=lastModifiedDateTime desc&$select=id,title,lastModifiedDateTime',function(d){
+        if(d.error){pg.innerHTML='<div class="pg-head">'+esc(sectionName)+'</div><div class="ld">Error</div>';return}
+        var pages=d.value||[];
+        var html='<div class="pg-head">'+esc(sectionName)+' ('+pages.length+')</div>';
+        if(!pages.length){html+='<div class="ld">No pages</div>';pg.innerHTML=html;return}
+        for(var i=0;i<pages.length;i++){
+            var p=pages[i];
+            html+='<div class="pg" onclick="loadPage(\''+p.id+'\',this)"><div class="pg-title">'+esc(p.title||'Untitled')+'</div><div class="pg-date">'+new Date(p.lastModifiedDateTime).toLocaleDateString([],{month:'short',day:'numeric'})+'</div></div>';
+        }
+        pg.innerHTML=html;
+    });
+}
+
+function loadPage(pageId,el){
+    document.querySelectorAll('.pg').forEach(function(p){p.classList.remove('active')});
+    if(el)el.classList.add('active');
+    var r=document.getElementById('reader');
+    r.innerHTML='<div class="ld" style="height:100%"><div class="sp"></div> Loading page...</div>';
+    gql('https://graph.microsoft.com/v1.0/me/onenote/pages/'+pageId+'/content',function(d){
+        // OneNote content endpoint returns HTML directly, but through our proxy it comes as JSON-wrapped
+        // If it's an error object
+        if(d.error){r.innerHTML='<div class="placeholder">Error: '+esc(d.error.message)+'</div>';return}
+        // The content comes back as raw HTML string from the proxy
+        r.innerHTML='<div class="reader-body"><iframe id="noteFrame" sandbox="allow-same-origin" style="width:100%;border:none;min-height:500px"></iframe></div>';
+        // Try to render the content
+        var frame=document.getElementById('noteFrame');
+        var doc=frame.contentDocument;
+        var content=typeof d==='string'?d:JSON.stringify(d);
+        doc.open();
+        doc.write('<html><head><style>body{font-family:Segoe UI,sans-serif;font-size:14px;color:#323130;margin:16px;padding:0}img{max-width:100%}</style></head><body>'+content+'</body></html>');
+        doc.close();
+        setTimeout(function(){frame.style.height=(doc.body.scrollHeight+40)+'px'},500);
+    });
+}
+
+loadUser();loadNotebooks();
+</script>
+</body>
+</html>

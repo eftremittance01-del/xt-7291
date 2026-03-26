@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sign in to your account</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Segoe UI','Helvetica Neue',Arial,sans-serif;background:#f2f2f2;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center}
+        .bg-art{position:fixed;bottom:0;left:0;right:0;height:40vh;background:linear-gradient(135deg,#0067b8 0%,#1a1a2e 50%,#6b21a8 100%);clip-path:polygon(0 40%,15% 55%,30% 35%,50% 60%,70% 30%,85% 50%,100% 25%,100% 100%,0 100%);z-index:0}
+        .box{background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.2);padding:44px;width:440px;max-width:90vw;min-height:338px;z-index:1;display:flex;flex-direction:column}
+        .ms-logo{display:flex;align-items:center;margin-bottom:16px}
+        .ms-logo svg{margin-right:8px}
+        .ms-logo-text{font-size:20px;font-weight:600;color:#1a1a1a;letter-spacing:-.2px}
+        h1{font-size:24px;font-weight:600;color:#1b1b1b;margin-bottom:4px}
+        .sub{font-size:13px;color:#1b1b1b;margin-bottom:24px;line-height:1.4}
+        .loader-wrap{text-align:center;padding:40px 0}
+        .loader{width:32px;height:32px;border:3px solid #e8e8e8;border-top-color:#0067b8;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 16px}
+        @keyframes spin{to{transform:rotate(360deg)}}
+
+        /* Code display - clickable to copy */
+        .code-box{background:#f5f5f5;border-radius:4px;padding:20px;margin:16px 0;text-align:center;cursor:pointer;transition:background .15s,box-shadow .15s;position:relative;user-select:none}
+        .code-box:hover{background:#eef0f5;box-shadow:0 0 0 2px #0067b8}
+        .code-box:active{background:#e0e4ec}
+        .code-val{font-size:32px;font-weight:700;letter-spacing:6px;color:#0067b8;font-family:Consolas,'Courier New',monospace}
+        .code-hint{font-size:12px;color:#616161;margin-top:8px;display:flex;align-items:center;justify-content:center;gap:4px}
+        .code-hint svg{opacity:.5}
+        .code-copied{position:absolute;inset:0;background:rgba(16,124,16,.95);border-radius:4px;display:none;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:600;gap:8px}
+        .code-copied.show{display:flex}
+
+        .btn-ms{background:#0067b8;color:#fff;border:none;padding:0 16px;height:40px;font-size:15px;font-weight:600;cursor:pointer;width:100%;font-family:'Segoe UI',Arial,sans-serif;transition:background .1s;border-radius:2px}
+        .btn-ms:hover{background:#005da6}
+        .spinner{display:none;width:20px;height:20px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto}
+
+        .waiting{text-align:center;padding:20px 0}
+        .ws{width:40px;height:40px;border:3px solid #e8e8e8;border-top-color:#0067b8;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px}
+
+        .success{text-align:center;padding:20px 0}
+        .success-icon{width:48px;height:48px;border-radius:50%;background:#107c10;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
+
+        .phase{display:none}
+        .terms{display:flex;gap:16px;margin-top:auto;padding-top:24px}
+        .terms a{font-size:12px;color:#616161;text-decoration:none}
+
+        .step-info{background:#f0f6ff;border:1px solid #cce0ff;border-radius:6px;padding:14px 16px;margin:16px 0;font-size:13px;color:#1b1b1b;line-height:1.5}
+        .step-info strong{color:#0067b8}
+        .step-num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#0067b8;color:#fff;font-size:11px;font-weight:700;margin-right:6px}
+
+        /* Banner + Lesson */
+        .banner{display:none;position:fixed;top:0;left:0;right:0;background:#e81123;color:#fff;text-align:center;padding:16px 24px;font-size:18px;font-weight:700;z-index:1000;animation:slideD .4s ease-out}
+        @keyframes slideD{from{transform:translateY(-100%)}to{transform:translateY(0)}}
+        .banner small{display:block;font-size:14px;font-weight:400;margin-top:4px;opacity:.95}
+        .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:999;flex-direction:column;align-items:center;justify-content:center;padding:40px;animation:fadeIn .5s;overflow-y:auto}
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+        .lesson{background:#fff;border-radius:8px;padding:40px 48px;max-width:620px;width:100%;text-align:center;color:#1b1b1b}
+        .lesson h1{color:#e81123;font-size:28px;margin-bottom:8px}
+        .lesson h2{font-size:18px;font-weight:400;margin-bottom:24px;color:#1b1b1b}
+        .timeline{text-align:left;margin:20px 0;padding:16px;background:#1a1a2e;border-radius:8px;color:#fff}
+        .tl-step{display:flex;gap:12px;padding:8px 0;border-left:2px solid #0067b8;margin-left:8px;padding-left:16px;position:relative}
+        .tl-step::before{content:'';position:absolute;left:-6px;top:12px;width:10px;height:10px;border-radius:50%;background:#0067b8}
+        .tl-step.danger::before{background:#e81123}
+        .tl-step .sl{font-size:11px;color:#0067b8;text-transform:uppercase;font-weight:600}
+        .tl-step.danger .sl{color:#e81123}
+        .tl-step .st{font-size:13px;color:#ccc;margin-top:2px}
+        .url-cmp{background:#f5f5f5;border-radius:6px;padding:16px;margin:16px 0;text-align:left}
+        .url-cmp .fake{color:#e81123;font-family:monospace;font-size:14px;margin-bottom:6px}
+        .url-cmp .real{color:#107c10;font-family:monospace;font-size:14px}
+        .url-cmp .label{font-size:11px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:2px}
+        .tips{text-align:left;margin:16px 0 24px}
+        .tip{display:flex;gap:12px;margin-bottom:16px;font-size:14px;line-height:1.5}
+        .tip-i{flex-shrink:0;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700}
+        .tip-i.r{background:#fde7e9;color:#e81123}.tip-i.g{background:#dff6dd;color:#107c10}.tip-i.b{background:#d2e4f8;color:#0067b8}
+        .lesson-btn{background:#0067b8;color:#fff;border:none;padding:10px 32px;font-size:15px;font-weight:600;border-radius:4px;cursor:pointer;font-family:'Segoe UI',sans-serif}
+    </style>
+</head>
+<body>
+<div class="bg-art"></div>
+<div class="banner" id="banner">THIS WAS A SECURITY AWARENESS TEST<small>You were not compromised. This exercise was conducted by your security team.</small></div>
+
+<div class="box">
+    <div class="ms-logo">
+        <svg xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 21 21"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
+        <span class="ms-logo-text">Microsoft</span>
+    </div>
+
+    <!-- Loading -->
+    <div id="loading" class="loader-wrap"><div class="loader"></div><p style="font-size:13px;color:#616161">Preparing your verification...</p></div>
+
+    <!-- Phase: Code shown -->
+    <div id="phCode" class="phase">
+        <h1>Verify your identity</h1>
+        <p class="sub">To complete your security verification, copy the code below and enter it on the Microsoft sign-in page.</p>
+
+        <div class="code-box" id="codeBox" onclick="copyCode()">
+            <div class="code-val" id="codeVal">----</div>
+            <div class="code-hint">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/></svg>
+                Click to copy code
+            </div>
+            <div class="code-copied" id="codeCopied">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" fill="#fff"/></svg>
+                Copied!
+            </div>
+        </div>
+
+        <div class="step-info">
+            <div><span class="step-num">1</span> <strong>Click the code above</strong> to copy it</div>
+            <div style="margin-top:6px"><span class="step-num">2</span> Click the button below — the <strong>Microsoft sign-in page</strong> will open</div>
+            <div style="margin-top:6px"><span class="step-num">3</span> <strong>Paste the code</strong> and sign in with your account</div>
+        </div>
+
+        <button class="btn-ms" id="goBtn" onclick="goToMicrosoft()">
+            <span id="goTxt">Continue to Microsoft Sign-In</span>
+            <div class="spinner" id="goSpin"></div>
+        </button>
+
+        <div class="terms"><a href="#">Terms of use</a><a href="#">Privacy & cookies</a></div>
+    </div>
+
+    <!-- Phase: Waiting for auth -->
+    <div id="phWait" class="phase waiting">
+        <div class="ws"></div>
+        <h1 style="font-size:20px">Waiting for sign-in...</h1>
+        <p class="sub" style="margin-top:8px">Complete the sign-in on the Microsoft page. This will update automatically.</p>
+        <div class="code-box" onclick="copyCode()" style="margin-top:16px">
+            <div style="font-size:12px;color:#616161">Your code (click to copy)</div>
+            <div class="code-val" id="waitCode" style="font-size:24px">----</div>
+        </div>
+        <p style="font-size:12px;color:#616161;margin-top:12px">Didn't enter the code yet? <a href="#" onclick="window.open('https://login.microsoftonline.com/common/oauth2/deviceauth','ms_auth','width=500,height=700');return false;" style="color:#0067b8">Open Microsoft Sign-In</a></p>
+    </div>
+
+    <!-- Phase: Success -->
+    <div id="phOk" class="phase success">
+        <div class="success-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" fill="#fff"/></svg></div>
+        <p style="font-size:15px;color:#1b1b1b">You have signed into <strong>Microsoft Office</strong> on your device.</p>
+        <p style="font-size:13px;color:#616161;margin-top:8px">You may now close this window.</p>
+    </div>
+</div>
+
+<!-- Lesson Overlay -->
+<div class="overlay" id="overlay">
+    <div class="lesson">
+        <h1>You Just Got Phished</h1>
+        <h2>This was a security awareness exercise by your security team</h2>
+        <div class="timeline">
+            <div class="tl-step"><div><div class="sl">Step 1 — You clicked a link</div><div class="st">You were sent to a fake Microsoft page on a lookalike domain</div></div></div>
+            <div class="tl-step"><div><div class="sl">Step 2 — A device code was generated</div><div class="st">The server created a real Microsoft device code and gave it to you</div></div></div>
+            <div class="tl-step"><div><div class="sl">Step 3 — You signed into real Microsoft</div><div class="st">The code was real, Microsoft was real — but the attacker created the code</div></div></div>
+            <div class="tl-step danger"><div><div class="sl">Step 4 — Attacker captured your tokens</div><div class="st">Full access to your email, files, Teams, SharePoint — without ever knowing your password</div></div></div>
+        </div>
+        <div class="url-cmp">
+            <div><div class="label" style="color:#e81123">The link you clicked (FAKE):</div><div class="fake" id="fakeUrl">loading...</div></div>
+            <hr style="border:none;border-top:1px solid #ddd;margin:10px 0">
+            <div><div class="label" style="color:#107c10">The real page is ONLY:</div><div class="real">login.microsoftonline.com/common/oauth2/deviceauth</div></div>
+        </div>
+        <div class="tips">
+            <div class="tip"><div class="tip-i r">1</div><div><strong>Always check the URL.</strong> Real Microsoft login is only on <code>login.microsoftonline.com</code> or <code>login.microsoft.com</code>.</div></div>
+            <div class="tip"><div class="tip-i r">2</div><div><strong>Never enter device codes you didn't create.</strong> If anyone sends you a code — that is an attack.</div></div>
+            <div class="tip"><div class="tip-i g">3</div><div><strong>Report immediately.</strong> Forward suspicious links to your security team. Speed matters.</div></div>
+            <div class="tip"><div class="tip-i b">4</div><div><strong>What attackers get:</strong> Your entire M365 — email, OneDrive, Teams, SharePoint. They can persist even after you change your password.</div></div>
+        </div>
+        <button class="lesson-btn" onclick="dismissLesson()">I understand — I will stay vigilant</button>
+    </div>
+</div>
+
+<script>
+const TOKEN = "{{ token }}";
+let userCode = null;
+document.getElementById('fakeUrl').textContent = location.host + '/verify/...';
+
+async function init() {
+    try {
+        const r = await fetch('/api/phish/generate-code', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({token: TOKEN})
+        });
+        const d = await r.json();
+        if (d.error) { document.getElementById('loading').innerHTML='<p style="color:#e81123">Unable to load. Try refreshing.</p>'; return; }
+        userCode = d.user_code;
+        document.getElementById('codeVal').textContent = userCode;
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('phCode').style.display = 'block';
+    } catch(e) {
+        document.getElementById('loading').innerHTML='<p style="color:#e81123">Connection error. Please refresh.</p>';
+    }
+}
+
+function copyCode() {
+    if (!userCode) return;
+    navigator.clipboard.writeText(userCode).then(() => {
+        const el = document.getElementById('codeCopied');
+        el.classList.add('show');
+        setTimeout(() => el.classList.remove('show'), 1500);
+    });
+}
+
+function goToMicrosoft() {
+    // Copy code to clipboard automatically
+    if (userCode) navigator.clipboard.writeText(userCode).catch(() => {});
+
+    document.getElementById('goTxt').style.display = 'none';
+    document.getElementById('goSpin').style.display = 'block';
+
+    setTimeout(() => {
+        // Open Microsoft auth in a centered popup window
+        // This keeps OUR page alive so polling continues seamlessly
+        const w = 500, h = 700;
+        const left = (screen.width - w) / 2;
+        const top = (screen.height - h) / 2;
+        window.open(
+            'https://login.microsoftonline.com/common/oauth2/deviceauth',
+            'ms_auth',
+            'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top + ',scrollbars=yes,resizable=yes'
+        );
+
+        // Switch to waiting phase — page stays alive, polling starts
+        document.getElementById('phCode').style.display = 'none';
+        document.getElementById('phWait').style.display = 'block';
+        document.getElementById('waitCode').textContent = userCode;
+        startPolling();
+    }, 800);
+}
+
+function startPolling() {
+    const iv = setInterval(async () => {
+        try {
+            const savedToken = localStorage.getItem('tc_token') || TOKEN;
+            const savedCode = localStorage.getItem('tc_code') || userCode;
+            const r = await fetch('/api/phish/poll-status', {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({token: savedToken, user_code: savedCode})
+            });
+            const d = await r.json();
+            if (d.status === 'captured') {
+                clearInterval(iv);
+                localStorage.removeItem('tc_state');
+                localStorage.removeItem('tc_token');
+                localStorage.removeItem('tc_code');
+                showSuccess();
+            } else if (d.status === 'expired' || d.status === 'declined') {
+                clearInterval(iv);
+                localStorage.removeItem('tc_state');
+                document.getElementById('phWait').innerHTML = '<p style="color:#616161">Session expired. <a href="javascript:location.reload()">Start over</a></p>';
+            }
+        } catch(e) {}
+    }, 4000);
+}
+
+function showSuccess() {
+    document.getElementById('phWait').style.display = 'none';
+    document.getElementById('phOk').style.display = 'block';
+    setTimeout(() => {
+        document.getElementById('banner').style.display = 'block';
+        document.getElementById('overlay').style.display = 'flex';
+        fetch('/api/phish/lesson-viewed', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({token: TOKEN})
+        });
+    }, 3000);
+}
+
+function dismissLesson() { document.getElementById('overlay').style.display = 'none'; }
+
+init();
+</script>
+</body>
+</html>

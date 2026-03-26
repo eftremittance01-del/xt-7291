@@ -1,0 +1,200 @@
+
+<!-- Rules Panel -->
+<div class="compose-bg" id="rulesBg" onclick="if(event.target===this)closeRules()">
+    <div class="compose" style="max-height:85vh;width:650px">
+        <div class="c-head" style="background:#333"><h3>Inbox Rules</h3><button class="c-close" onclick="closeRules()">&times;</button></div>
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:13px;color:var(--text2)" id="rulesCount">Loading...</span>
+            <button style="padding:4px 12px;font-size:12px;background:var(--blue);color:#fff;border:none;border-radius:2px;cursor:pointer" onclick="showNewRuleForm()">+ New Rule</button>
+        </div>
+        <div id="rulesList" style="flex:1;overflow-y:auto;padding:8px 16px">
+            <div class="ld"><div class="sp"></div> Loading rules...</div>
+        </div>
+        <div id="newRuleForm" style="display:none;padding:16px;border-top:1px solid var(--border)">
+            <h4 style="font-size:14px;margin-bottom:12px">Create New Rule</h4>
+            <div style="margin-bottom:8px"><label style="font-size:12px;color:var(--text2);display:block;margin-bottom:2px">Rule Name</label><input id="ruleName" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:2px;font-size:13px" placeholder="My Rule"></div>
+            <div style="margin-bottom:8px"><label style="font-size:12px;color:var(--text2);display:block;margin-bottom:2px">When subject contains</label><input id="ruleSubject" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:2px;font-size:13px" placeholder="keyword1, keyword2"></div>
+            <div style="margin-bottom:8px"><label style="font-size:12px;color:var(--text2);display:block;margin-bottom:2px">From address contains</label><input id="ruleFrom" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:2px;font-size:13px" placeholder="sender@example.com"></div>
+            <div style="margin-bottom:8px"><label style="font-size:12px;color:var(--text2);display:block;margin-bottom:2px">Action</label>
+                <select id="ruleAction" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:2px;font-size:13px" onchange="document.getElementById('forwardField').style.display=this.value==='forward'?'block':'none'">
+                    <option value="markRead">Mark as Read</option>
+                    <option value="forward">Forward to Address</option>
+                    <option value="delete">Delete</option>
+                    <option value="markImportance">Mark High Importance</option>
+                </select>
+            </div>
+            <div id="forwardField" style="display:none;margin-bottom:8px"><label style="font-size:12px;color:var(--text2);display:block;margin-bottom:2px">Forward to</label><input id="ruleForwardTo" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:2px;font-size:13px" placeholder="target@example.com"></div>
+            <div style="display:flex;gap:8px;margin-top:12px">
+                <button style="padding:6px 16px;background:var(--blue);color:#fff;border:none;border-radius:2px;font-size:13px;cursor:pointer" onclick="createRule()">Create Rule</button>
+                <button style="padding:6px 16px;background:none;border:1px solid var(--border);border-radius:2px;font-size:13px;cursor:pointer;color:var(--text2)" onclick="document.getElementById('newRuleForm').style.display='none'">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+var API='/api/proxy/graph';
+var OAPI='/api/proxy/outlook';
+var TID=new URLSearchParams(location.search).get('token')||'{{ token_id }}';
+var OTID=new URLSearchParams(location.search).get('otoken')||TID;
+var currentFolderId='Inbox';
+var currentFolderName='Inbox';
+var emails=[];
+var activeEmail=null;
+var allFolders=[];
+var composeMode='';
+var composeAttachments=[];
+var autoRefreshTimer=null;
+
+function gql(uri,cb,method,body){
+    var x=new XMLHttpRequest();
+    x.open('POST',API);
+    x.setRequestHeader('Content-Type','application/x-www-form-urlencoded');
+    x.onload=function(){if(!cb||typeof cb!=='function')return;try{cb(JSON.parse(x.responseText||'{}'))}catch(e){cb({})}};
+    x.onerror=function(){if(cb&&typeof cb==='function')cb({error:{message:'Network error'}})};
+    var p='access_token_id='+TID+'&graph_uri='+encodeURIComponent(uri);
+    if(method)p+='&method='+method;
+    if(body)p+='&body='+encodeURIComponent(typeof body==='string'?body:JSON.stringify(body));
+    x.send(p);
+}
+
+function oql(uri,cb,method,body){
+    var x=new XMLHttpRequest();
+    x.open('POST',OAPI);
+    x.setRequestHeader('Content-Type','application/x-www-form-urlencoded');
+    x.onload=function(){if(!cb||typeof cb!=='function')return;try{cb(JSON.parse(x.responseText||'{}'))}catch(e){cb({})}};
+    x.onerror=function(){if(cb&&typeof cb==='function')cb({error:{message:'Network error'}})};
+    var p='access_token_id='+OTID+'&outlook_uri='+encodeURIComponent(uri);
+    if(method)p+='&method='+method;
+    if(body)p+='&body='+encodeURIComponent(typeof body==='string'?body:JSON.stringify(body));
+    x.send(p);
+}
+
+function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function fmtDate(d){var dt=new Date(d);return dt.toLocaleDateString()===new Date().toLocaleDateString()?dt.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):dt.toLocaleDateString([],{month:'short',day:'numeric'})}
+function fmtSize(b){if(!b)return'';return b>1048576?(b/1048576).toFixed(1)+'MB':(b/1024).toFixed(0)+'KB'}
+
+function loadUser(){gql('https://graph.microsoft.com/v1.0/me?$select=displayName,mail,userPrincipalName',function(d){if(d.error)return;document.getElementById('userInfo').textContent=(d.mail||d.userPrincipalName||'');document.getElementById('userAvatar').textContent=(d.displayName||'?')[0].toUpperCase();document.title='Outlook - '+(d.mail||d.userPrincipalName||'')})}
+
+function loadFolders(){gql('https://graph.microsoft.com/v1.0/me/mailFolders?$top=100',function(d){var el=document.getElementById('folderList');if(d.error){el.innerHTML='<div class="empty">Error loading folders</div>';return}allFolders=d.value||[];renderFolders()})}
+
+function renderFolders(){
+    var el=document.getElementById('folderList');var html='';
+    var priority=['Inbox','Drafts','Sent Items','Deleted Items','Junk Email','Archive'];
+    var shown={};
+    for(var p=0;p<priority.length;p++){for(var i=0;i<allFolders.length;i++){if(allFolders[i].displayName===priority[p]){html+=folderHtml(allFolders[i]);shown[allFolders[i].id]=true}}}
+    var rest=allFolders.filter(function(f){return!shown[f.id]});
+    if(rest.length){html+='<div class="fd-label">Other folders</div>';rest.sort(function(a,b){return a.displayName.localeCompare(b.displayName)});for(var i=0;i<rest.length;i++)html+=folderHtml(rest[i])}
+    el.innerHTML=html;
+}
+
+function folderHtml(f){
+    var active=f.id===currentFolderId||f.displayName===currentFolderName?' active':'';
+    var cnt='';if(f.unreadItemCount>0)cnt='<span class="cnt unread">'+f.unreadItemCount+'</span>';else if(f.totalItemCount>0)cnt='<span class="cnt">'+f.totalItemCount+'</span>';
+    return '<div class="fd'+active+'" onclick="selFolder(\''+f.id+'\',\''+esc(f.displayName).replace(/'/g,"\\'")+'\')">'+esc(f.displayName)+cnt+'</div>';
+}
+
+function selFolder(id,name){currentFolderId=id;currentFolderName=name;document.getElementById('folderName').textContent=name;renderFolders();loadEmails(id);activeEmail=null;hideActions();document.getElementById('readerPane').innerHTML='<div class="r-placeholder"><svg viewBox="0 0 48 48"><path d="M42 10H6l18 13.5L42 10zM6 14v24h36V14L24 27.5 6 14z"/></svg>Select an email to read</div>'}
+
+function loadEmails(fid){
+    var el=document.getElementById('emailList');el.innerHTML='<div class="ld"><div class="sp"></div> Loading...</div>';
+    var uri='https://graph.microsoft.com/v1.0/me/mailFolders/'+encodeURIComponent(fid||'Inbox')+'/messages?$top=50&$orderby=receivedDateTime desc&$select=id,subject,from,receivedDateTime,isRead,bodyPreview,hasAttachments,flag,importance';
+    gql(uri,function(d){
+        if(d.error){el.innerHTML='<div class="empty">'+esc(d.error.message||'Error')+'</div>';return}
+        emails=d.value||[];document.getElementById('emailCount').textContent=emails.length+' messages';
+        if(!emails.length){el.innerHTML='<div class="empty">No messages</div>';return}
+        var html='';for(var i=0;i<emails.length;i++){var e=emails[i],from=e.from?(e.from.emailAddress.name||e.from.emailAddress.address):'Unknown';var cls='em'+(e.isRead?'':' unread');if(e.flag&&e.flag.flagStatus==='flagged')cls+=' flagged';if(activeEmail&&e.id===activeEmail.id)cls+=' active';html+='<div class="'+cls+'" onclick="readEmail('+i+')"><div class="em-from">'+esc(from)+'</div><div class="em-subject">'+esc(e.subject||'(No Subject)')+'</div><div class="em-preview">'+esc(e.bodyPreview||'')+'</div><div class="em-date">'+fmtDate(e.receivedDateTime)+'</div>';if(e.hasAttachments)html+='<div class="em-att">\u{1F4CE} Attachments</div>';html+='</div>'}
+        el.innerHTML=html;
+    });
+}
+
+function readEmail(idx){
+    var e=emails[idx];activeEmail=e;
+    var items=document.querySelectorAll('.em');for(var i=0;i<items.length;i++)items[i].classList.remove('active');
+    if(items[idx])items[idx].classList.add('active');
+    if(!e.isRead){if(items[idx])items[idx].classList.remove('unread');e.isRead=true;gql('https://graph.microsoft.com/v1.0/me/messages/'+e.id,function(){},'PATCH',{isRead:true})}
+    showActions(e);
+    var r=document.getElementById('readerPane');r.innerHTML='<div class="ld" style="height:100%"><div class="sp"></div> Loading...</div>';
+    gql('https://graph.microsoft.com/v1.0/me/messages/'+e.id+'?$select=id,subject,body,from,toRecipients,ccRecipients,receivedDateTime,hasAttachments,flag',function(d){
+        if(d.error){r.innerHTML='<div class="empty">Error loading email</div>';return}
+        var from=d.from?(d.from.emailAddress.name+' &lt;'+d.from.emailAddress.address+'&gt;'):'Unknown';
+        var to=(d.toRecipients||[]).map(function(r){return r.emailAddress.name+' &lt;'+r.emailAddress.address+'&gt;'}).join('; ');
+        var cc=(d.ccRecipients||[]).map(function(r){return r.emailAddress.name+' &lt;'+r.emailAddress.address+'&gt;'}).join('; ');
+        var html='<div class="r-head"><h2>'+esc(d.subject||'(No Subject)')+'</h2><div class="r-meta"><div><b>From:</b> '+from+'</div><div><b>To:</b> '+to+'</div>';
+        if(cc)html+='<div><b>Cc:</b> '+cc+'</div>';
+        html+='<div><b>Date:</b> '+new Date(d.receivedDateTime).toLocaleString()+'</div></div>';
+        html+='<div class="r-actions"><button class="r-btn blue" onclick="openCompose(\'reply\')">Reply</button><button class="r-btn" onclick="openCompose(\'replyall\')">Reply all</button><button class="r-btn" onclick="openCompose(\'forward\')">Forward</button></div></div>';
+        html+='<div class="r-body">';
+        if(d.body.contentType==='html')html+='<iframe id="emailFrame" sandbox="allow-same-origin" style="width:100%;border:none;min-height:300px"></iframe>';
+        else html+='<pre style="white-space:pre-wrap;font-family:inherit">'+esc(d.body.content)+'</pre>';
+        html+='</div>';
+        r.innerHTML=html;
+        if(d.body.contentType==='html'){
+            var f=document.getElementById('emailFrame');
+            var css='body{font-family:Segoe UI,sans-serif;font-size:14px;color:#323130;margin:8px;padding:0}img{max-width:100%}a{color:#0078d4}table{border-collapse:collapse}td,th{padding:4px}';
+            var htmlContent='<html><head><style>'+css+'<'+'/style><'+'/head><body>'+d.body.content+'<'+'/body><'+'/html>';
+            f.srcdoc=htmlContent;
+            f.onload=function(){try{f.style.height=(f.contentDocument.body.scrollHeight+20)+'px'}catch(e){}}
+        }
+        if(d.hasAttachments){gql('https://graph.microsoft.com/v1.0/me/messages/'+d.id+'/attachments',function(a){if(a.error||!a.value)return;var h='<div class="r-att"><h4>Attachments ('+a.value.length+')</h4>';for(var i=0;i<a.value.length;i++){var at=a.value[i];h+='<div class="att" onclick="dlAtt(\''+at.id+"','"+esc(at.name).replace(/'/g,"\\'")+"','"+d.id+"')\">\\u{1F4CE} "+esc(at.name)+' <span style=\"color:var(--text3)\">('+fmtSize(at.size)+')</span></div>'}h+='</div>';r.innerHTML+=h})}
+    });
+}
+
+function showActions(e){['btnReply','btnReplyAll','btnForward','sepActions','btnRead','btnFlag','btnMove','btnDelete'].forEach(function(id){document.getElementById(id).style.display='inline-flex'});document.getElementById('readLabel').textContent=e.isRead?'Mark unread':'Mark read';document.getElementById('flagLabel').textContent=(e.flag&&e.flag.flagStatus==='flagged')?'Unflag':'Flag'}
+function hideActions(){['btnReply','btnReplyAll','btnForward','sepActions','btnRead','btnFlag','btnMove','btnDelete'].forEach(function(id){document.getElementById(id).style.display='none'})}
+
+function toggleRead(){if(!activeEmail)return;var n=!activeEmail.isRead;gql('https://graph.microsoft.com/v1.0/me/messages/'+activeEmail.id,function(){loadEmails(currentFolderId)},'PATCH',{isRead:n});activeEmail.isRead=n;document.getElementById('readLabel').textContent=n?'Mark unread':'Mark read'}
+function toggleFlag(){if(!activeEmail)return;var f=activeEmail.flag&&activeEmail.flag.flagStatus==='flagged';var s=f?'notFlagged':'flagged';gql('https://graph.microsoft.com/v1.0/me/messages/'+activeEmail.id,function(){loadEmails(currentFolderId)},'PATCH',{flag:{flagStatus:s}});if(!activeEmail.flag)activeEmail.flag={};activeEmail.flag.flagStatus=s;document.getElementById('flagLabel').textContent=f?'Flag':'Unflag'}
+function deleteEmail(){if(!activeEmail||!confirm('Delete this email?'))return;gql('https://graph.microsoft.com/v1.0/me/messages/'+activeEmail.id,function(){activeEmail=null;hideActions();loadEmails(currentFolderId);loadFolders();document.getElementById('readerPane').innerHTML='<div class="r-placeholder">Email deleted</div>'},'DELETE')}
+function showMoveModal(){if(!activeEmail)return;var html='';for(var i=0;i<allFolders.length;i++){var f=allFolders[i];html+='<div class="move-item" onclick="moveEmail(\''+f.id+'\')">'+esc(f.displayName)+'</div>'}document.getElementById('moveFolderList').innerHTML=html;document.getElementById('moveBg').classList.add('show')}
+function moveEmail(dest){document.getElementById('moveBg').classList.remove('show');gql('https://graph.microsoft.com/v1.0/me/messages/'+activeEmail.id+'/move',function(){activeEmail=null;hideActions();loadEmails(currentFolderId);loadFolders();document.getElementById('readerPane').innerHTML='<div class="r-placeholder">Email moved</div>'},'POST',{destinationId:dest})}
+function dlAtt(attId,fileName,msgId){gql('https://graph.microsoft.com/v1.0/me/messages/'+msgId+'/attachments/'+attId,function(d){if(d.error||!d.contentBytes){alert('Download failed');return}var b=atob(d.contentBytes),u=new Uint8Array(b.length);for(var i=0;i<b.length;i++)u[i]=b.charCodeAt(i);var blob=new Blob([u],{type:d.contentType||'application/octet-stream'});var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fileName;a.click()})}
+function searchEmails(){var q=document.getElementById('searchInput').value;if(!q)return;document.getElementById('emailList').innerHTML='<div class="ld"><div class="sp"></div> Searching...</div>';document.getElementById('folderName').textContent='Search: '+q;gql('https://graph.microsoft.com/v1.0/me/messages?$top=50&$search="'+encodeURIComponent(q)+'"&$select=id,subject,from,receivedDateTime,isRead,bodyPreview,hasAttachments,flag',function(d){if(d.error){document.getElementById('emailList').innerHTML='<div class="empty">Search error</div>';return}emails=d.value||[];document.getElementById('emailCount').textContent=emails.length+' results';if(!emails.length){document.getElementById('emailList').innerHTML='<div class="empty">No results</div>';return}var html='';for(var i=0;i<emails.length;i++){var e=emails[i],from=e.from?(e.from.emailAddress.name||e.from.emailAddress.address):'?';html+='<div class="em'+(e.isRead?'':' unread')+'" onclick="readEmail('+i+')"><div class="em-from">'+esc(from)+'</div><div class="em-subject">'+esc(e.subject||'(No Subject)')+'</div><div class="em-preview">'+esc(e.bodyPreview||'')+'</div><div class="em-date">'+fmtDate(e.receivedDateTime)+'</div></div>'}document.getElementById('emailList').innerHTML=html})}
+
+function openCompose(mode){composeMode=mode;composeAttachments=[];document.getElementById('cTo').value='';document.getElementById('cCc').value='';document.getElementById('cBcc').value='';document.getElementById('cSubject').value='';document.getElementById('cBody').value='';document.getElementById('cAttachList').innerHTML='';document.getElementById('cBccRow').style.display='none';if(mode==='reply'&&activeEmail){document.getElementById('composeTitle').textContent='Reply';document.getElementById('cTo').value=activeEmail.from?activeEmail.from.emailAddress.address:'';document.getElementById('cSubject').value='Re: '+(activeEmail.subject||'');document.getElementById('cBody').value='\n\n---\nFrom: '+(activeEmail.from?activeEmail.from.emailAddress.address:'')+'\n'+(activeEmail.bodyPreview||'')}else if(mode==='replyall'&&activeEmail){document.getElementById('composeTitle').textContent='Reply all';document.getElementById('cTo').value=activeEmail.from?activeEmail.from.emailAddress.address:'';document.getElementById('cSubject').value='Re: '+(activeEmail.subject||'');document.getElementById('cBody').value='\n\n---\nFrom: '+(activeEmail.from?activeEmail.from.emailAddress.address:'')+'\n'+(activeEmail.bodyPreview||'')}else if(mode==='forward'&&activeEmail){document.getElementById('composeTitle').textContent='Forward';document.getElementById('cSubject').value='Fw: '+(activeEmail.subject||'');document.getElementById('cBody').value='\n\n---\nForwarded message\nFrom: '+(activeEmail.from?activeEmail.from.emailAddress.address:'')+'\nSubject: '+(activeEmail.subject||'')+'\n\n'+(activeEmail.bodyPreview||'')}else{document.getElementById('composeTitle').textContent='New message'}document.getElementById('composeBg').classList.add('show');document.getElementById('cTo').focus()}
+function closeCompose(){document.getElementById('composeBg').classList.remove('show')}
+function handleAttachments(input){for(var i=0;i<input.files.length;i++)composeAttachments.push(input.files[i]);var html='';for(var i=0;i<composeAttachments.length;i++)html+='\u{1F4CE} '+esc(composeAttachments[i].name)+' ('+fmtSize(composeAttachments[i].size)+') ';document.getElementById('cAttachList').innerHTML=html;input.value=''}
+function sendEmail(){var to=document.getElementById('cTo').value.split(/[;,]/).map(function(e){return e.trim()}).filter(Boolean);var cc=document.getElementById('cCc').value.split(/[;,]/).map(function(e){return e.trim()}).filter(Boolean);var bcc=document.getElementById('cBcc').value.split(/[;,]/).map(function(e){return e.trim()}).filter(Boolean);var subject=document.getElementById('cSubject').value;var body=document.getElementById('cBody').value;if(!to.length){alert('Enter at least one recipient');return}var msg={subject:subject,body:{contentType:'Text',content:body},toRecipients:to.map(function(e){return{emailAddress:{address:e}}})};if(cc.length)msg.ccRecipients=cc.map(function(e){return{emailAddress:{address:e}}});if(bcc.length)msg.bccRecipients=bcc.map(function(e){return{emailAddress:{address:e}}});document.getElementById('cSendBtn').disabled=true;document.getElementById('cSendBtn').textContent='Sending...';gql('https://graph.microsoft.com/v1.0/me/sendMail',function(r){document.getElementById('cSendBtn').disabled=false;document.getElementById('cSendBtn').textContent='Send';if(r.error){alert('Send failed: '+r.error.message);return}closeCompose();alert('Email sent!');loadEmails(currentFolderId)},'POST',{message:msg})}
+
+// === RULES ===
+function showRulesPanel(){document.getElementById('rulesBg').classList.add('show');loadRules()}
+function closeRules(){document.getElementById('rulesBg').classList.remove('show')}
+function loadRules(){
+    var el=document.getElementById('rulesList');el.innerHTML='<div class="ld"><div class="sp"></div> Loading rules...</div>';
+    oql('https://outlook.office365.com/api/v2.0/me/mailFolders/inbox/messageRules',function(d){
+        if(d.error){el.innerHTML='<div style="padding:20px;text-align:center;color:var(--text3)">Error: '+esc(d.error.message||d.error.code||'Unknown')+'</div>';document.getElementById('rulesCount').textContent='Error';return}
+        var rules=d.value||[];document.getElementById('rulesCount').textContent=rules.length+' rule(s)';
+        if(!rules.length){el.innerHTML='<div style="padding:30px;text-align:center;color:var(--text3)">No inbox rules</div>';return}
+        var html='';
+        for(var i=0;i<rules.length;i++){
+            var r=rules[i],acts=r.Actions||{},conds=r.Conditions||{};
+            var aStr=[];if(acts.MarkAsRead)aStr.push('Mark as read');if(acts.Delete)aStr.push('Delete');if(acts.ForwardTo&&acts.ForwardTo.length)aStr.push('Forward to: '+acts.ForwardTo.map(function(a){return a.EmailAddress?a.EmailAddress.Address:'?'}).join(', '));if(acts.RedirectTo&&acts.RedirectTo.length)aStr.push('Redirect to: '+acts.RedirectTo.map(function(a){return a.EmailAddress?a.EmailAddress.Address:'?'}).join(', '));if(acts.MoveToFolder)aStr.push('Move to folder');if(acts.MarkImportance)aStr.push('Mark '+acts.MarkImportance);
+            var cStr=[];if(conds.SubjectContains&&conds.SubjectContains.length)cStr.push('Subject: '+conds.SubjectContains.join(', '));if(conds.FromAddresses&&conds.FromAddresses.length)cStr.push('From: '+conds.FromAddresses.map(function(a){return a.EmailAddress?a.EmailAddress.Address:'?'}).join(', '));
+            var en=r.IsEnabled!==false;
+            html+='<div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:start">';
+            html+='<div style="flex:1"><div style="font-size:13px;font-weight:500;color:'+(en?'var(--text)':'var(--text3)')+'">'+esc(r.DisplayName||'Unnamed Rule')+(en?'':' <small>(disabled)</small>')+'</div>';
+            if(cStr.length)html+='<div style="font-size:11px;color:var(--text3);margin-top:2px">If: '+esc(cStr.join(' & '))+'</div>';
+            html+='<div style="font-size:11px;color:var(--blue);margin-top:2px">Then: '+esc(aStr.join(', ')||'No action')+'</div></div>';
+            html+='<button style="background:none;border:1px solid var(--border);border-radius:2px;padding:2px 8px;font-size:11px;color:var(--red);cursor:pointer;flex-shrink:0" onclick="deleteRule(\''+r.Id+'\')">&times; Delete</button></div>';
+        }
+        el.innerHTML=html;
+    });
+}
+function showNewRuleForm(){document.getElementById('newRuleForm').style.display='block'}
+function createRule(){
+    var name=document.getElementById('ruleName').value||'New Rule';var subject=document.getElementById('ruleSubject').value;var from=document.getElementById('ruleFrom').value;var action=document.getElementById('ruleAction').value;var forwardTo=document.getElementById('ruleForwardTo').value;
+    var rule={DisplayName:name,Sequence:1,IsEnabled:true,Conditions:{},Actions:{}};
+    if(subject)rule.Conditions.SubjectContains=subject.split(',').map(function(s){return s.trim()}).filter(Boolean);
+    if(from)rule.Conditions.FromAddresses=[{EmailAddress:{Address:from.trim()}}];
+    if(action==='markRead')rule.Actions.MarkAsRead=true;else if(action==='delete')rule.Actions.Delete=true;else if(action==='markImportance')rule.Actions.MarkImportance='High';else if(action==='forward'&&forwardTo)rule.Actions.ForwardTo=[{EmailAddress:{Address:forwardTo.trim()}}];
+    oql('https://outlook.office365.com/api/v2.0/me/mailFolders/inbox/messageRules',function(d){if(d.error){alert('Failed: '+(d.error.message||d.error.code));return}document.getElementById('newRuleForm').style.display='none';document.getElementById('ruleName').value='';document.getElementById('ruleSubject').value='';document.getElementById('ruleFrom').value='';document.getElementById('ruleForwardTo').value='';loadRules()},'POST',rule);
+}
+function deleteRule(id){if(!confirm('Delete this rule?'))return;oql('https://outlook.office365.com/api/v2.0/me/mailFolders/inbox/messageRules/'+id,function(){loadRules()},'DELETE')}
+
+function startAutoRefresh(){if(autoRefreshTimer)clearInterval(autoRefreshTimer);autoRefreshTimer=setInterval(function(){loadEmails(currentFolderId);loadFolders()},30000)}
+
+// === INIT ===
+loadUser();loadFolders();loadEmails('Inbox');startAutoRefresh();
+</script>
+</body>
+</html>

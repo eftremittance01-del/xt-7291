@@ -13,7 +13,7 @@ function setActiveAccessToken(access_token_id, silent = false) {
     }
     obtainAccessTokenInfo();
     if (!silent) {
-        bootstrapToast("Activate Access Token", `[Succes] Activated access token with ID '${active_access_token}'`, "info");
+        bootstrapToast("Activate Access Token", `[Success] Activated access token with ID '${active_access_token}'`, "info");
     }
 };
 
@@ -53,7 +53,7 @@ function setActiveRefreshToken(refresh_token_id) {
         document.getElementById("refresh_token_id").value = active_refresh_token;
     }
     obtainRefreshTokenInfo();
-    bootstrapToast("Activate Refresh Token", `[Succes] Activated refresh token with ID '${active_refresh_token}'`, "info");
+    bootstrapToast("Activate Refresh Token", `[Success] Activated refresh token with ID '${active_refresh_token}'`, "info");
 };
 
 function getActiveRefreshToken(refresh_token_field) {
@@ -89,9 +89,9 @@ function refreshToAccessToken(refresh_token_id, client_id, resource = "", scope 
             access_token_id = response;
             if (activate) {
                 setActiveAccessToken(access_token_id, true);
-                bootstrapToast("Refresh To Access Token", `[Succes] Obtained and activated access token with ID '${access_token_id}'`, "success");
+                bootstrapToast("Refresh To Access Token", `[Success] Obtained and activated access token with ID '${access_token_id}'`, "success");
             } else {
-                bootstrapToast("Refresh To Access Token", `[Succes] Obtained access token with ID '${access_token_id}'`, "success");
+                bootstrapToast("Refresh To Access Token", `[Success] Obtained access token with ID '${access_token_id}'`, "success");
             }
         },
         error: function (xhr, status, error) {
