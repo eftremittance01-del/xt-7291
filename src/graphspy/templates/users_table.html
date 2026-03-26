@@ -113,9 +113,10 @@
 
     /* Modal without backdrop - use modal's own background */
     #profileModal { background: rgba(0,0,0,0.6); }
-    #profileModal .modal-dialog { margin-top: 40px; max-height: 85vh; }
-    #profileModal .modal-content { box-shadow: 0 20px 60px rgba(0,0,0,0.5); max-height: 85vh; display: flex; flex-direction: column; }
-    #profileModal .modal-body { overflow-y: auto; -webkit-overflow-scrolling: touch; max-height: calc(85vh - 60px); padding: 20px; }
+    #profileModal.show { display: flex !important; align-items: center; justify-content: center; }
+    #profileModal .modal-dialog { margin: 0; max-height: 70vh; }
+    #profileModal .modal-content { box-shadow: 0 20px 60px rgba(0,0,0,0.5); max-height: 75vh; display: flex; flex-direction: column; }
+    #profileModal .modal-body { overflow-y: auto; -webkit-overflow-scrolling: touch; max-height: calc(75vh - 60px); padding: 20px; }
     #profileModal .modal-body::-webkit-scrollbar { width: 6px; }
     #profileModal .modal-body::-webkit-scrollbar-track { background: transparent; }
     #profileModal .modal-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
@@ -259,23 +260,29 @@ function smartOpen(rtId, fallbackTid, service, path, btn) {
         return;
     }
 
-    $.post('/api/refresh_to_access_token', {
-        refresh_token_id: rtId,
-        client_id: cfg.client,
-        resource: cfg.resource,
-        store_refresh_token: 'true'
-    }, function(resp) {
-        var newTid = String(resp).trim();
-        if (newTid && !isNaN(parseInt(newTid)) && parseInt(newTid) > 0) {
-            window.open(OWA_BASE + path + '?token=' + newTid, '_blank');
-            usersTable.ajax.reload(null, false);
-        } else {
-            window.open(OWA_BASE + path + '?token=' + fallbackTid, '_blank');
-        }
-        if (btn) { btn.textContent = origText; btn.style.pointerEvents = ''; }
-    }).fail(function() {
-        window.open(OWA_BASE + path + '?token=' + fallbackTid, '_blank');
-        if (btn) { btn.textContent = origText; btn.style.pointerEvents = ''; }
+    // Try preferred client first, then fallback to original capture client
+    function tryRefresh(clientId, onFail) {
+        $.post('/api/refresh_to_access_token', {
+            refresh_token_id: rtId, client_id: clientId,
+            resource: cfg.resource, store_refresh_token: 'true'
+        }, function(resp) {
+            var newTid = String(resp).trim();
+            if (newTid && !isNaN(parseInt(newTid)) && parseInt(newTid) > 0) {
+                window.open(OWA_BASE + path + '?token=' + newTid, '_blank');
+                usersTable.ajax.reload(null, false);
+                if (btn) { btn.textContent = origText; btn.style.pointerEvents = ''; }
+            } else if (onFail) { onFail(); }
+            else { window.open(OWA_BASE + path + '?token=' + fallbackTid, '_blank'); if (btn) { btn.textContent = origText; btn.style.pointerEvents = ''; } }
+        }).fail(function() { if (onFail) onFail(); else { window.open(OWA_BASE + path + '?token=' + fallbackTid, '_blank'); if (btn) { btn.textContent = origText; btn.style.pointerEvents = ''; } } });
+    }
+    // Try: 1) preferred client, 2) original capture client, 3) Azure CLI, 4) fallback
+    tryRefresh(cfg.client, function() {
+        tryRefresh('defined_in_token', function() {
+            tryRefresh('04b07795-8ddb-461a-bbee-02f9e1bf7b46', function() {
+                window.open(OWA_BASE + path + '?token=' + fallbackTid, '_blank');
+                if (btn) { btn.textContent = origText; btn.style.pointerEvents = ''; }
+            });
+        });
     });
 }
 
@@ -288,31 +295,30 @@ function openOutlook(tid, rtId) {
 
     if (!rtId) { window.open(OWA_BASE + '/owa?token=' + tid, '_blank'); btn.textContent = origText; btn.style.pointerEvents = ''; return; }
 
-    // Get Graph token first
-    $.post('/api/refresh_to_access_token', {
-        refresh_token_id: rtId, client_id: 'd3590ed6-52b3-4102-aeff-aad2292ab01c',
-        resource: 'https://graph.microsoft.com', store_refresh_token: 'true'
-    }, function(graphResp) {
-        var graphTid = String(graphResp).trim();
-        // Now get Outlook token
+    // Smart refresh: try preferred client, fall back to original capture client, then Azure CLI
+    function tryRefreshOutlook(resource, clientIds, idx, callback) {
+        if (idx >= clientIds.length) { callback(null); return; }
         $.post('/api/refresh_to_access_token', {
-            refresh_token_id: rtId, client_id: 'd3590ed6-52b3-4102-aeff-aad2292ab01c',
-            resource: 'https://outlook.office365.com', store_refresh_token: 'true'
-        }, function(outlookResp) {
-            var outlookTid = String(outlookResp).trim();
-            var url = OWA_BASE + '/owa?token=' + graphTid + '&otoken=' + outlookTid;
+            refresh_token_id: rtId, client_id: clientIds[idx],
+            resource: resource, store_refresh_token: 'true'
+        }, function(resp) {
+            var tid = String(resp).trim();
+            if (tid && !isNaN(parseInt(tid)) && parseInt(tid) > 0) { callback(tid); }
+            else { tryRefreshOutlook(resource, clientIds, idx + 1, callback); }
+        }).fail(function() { tryRefreshOutlook(resource, clientIds, idx + 1, callback); });
+    }
+    var clients = ['d3590ed6-52b3-4102-aeff-aad2292ab01c', 'defined_in_token', '04b07795-8ddb-461a-bbee-02f9e1bf7b46'];
+
+    // Step 1: Get Graph token
+    tryRefreshOutlook('https://graph.microsoft.com', clients, 0, function(graphTid) {
+        if (!graphTid) graphTid = tid;
+        // Step 2: Get Outlook token
+        tryRefreshOutlook('https://outlook.office365.com', clients, 0, function(outlookTid) {
+            var url = OWA_BASE + '/owa?token=' + graphTid + (outlookTid ? '&otoken=' + outlookTid : '');
             window.open(url, '_blank');
             usersTable.ajax.reload(null, false);
             btn.textContent = origText; btn.style.pointerEvents = '';
-        }).fail(function() {
-            // Outlook refresh failed, open with just Graph token (no rules)
-            window.open(OWA_BASE + '/owa?token=' + graphTid, '_blank');
-            usersTable.ajax.reload(null, false);
-            btn.textContent = origText; btn.style.pointerEvents = '';
         });
-    }).fail(function() {
-        window.open(OWA_BASE + '/owa?token=' + tid, '_blank');
-        btn.textContent = origText; btn.style.pointerEvents = '';
     });
 }
 
@@ -359,16 +365,22 @@ function openSharePoint(tid, rtId) {
 function openOutlookGraph(tid, rtId) {
     if (!rtId) { setActiveAccessToken(tid, true); window.location.href = '/outlook_graph'; return; }
     var btn = event.target; btn.textContent = '...'; btn.style.pointerEvents = 'none';
-    $.post('/api/refresh_to_access_token', {
-        refresh_token_id: rtId, client_id: 'd3590ed6-52b3-4102-aeff-aad2292ab01c',
-        resource: 'https://graph.microsoft.com', store_refresh_token: 'true'
-    }, function(resp) {
-        var newTid = String(resp).trim();
-        if (newTid && !isNaN(parseInt(newTid))) setActiveAccessToken(parseInt(newTid), true);
-        else setActiveAccessToken(tid, true);
-        window.location.href = '/outlook_graph';
-        btn.textContent = 'Outlook Graph'; btn.style.pointerEvents = '';
-    }).fail(function() { setActiveAccessToken(tid, true); window.location.href = '/outlook_graph'; btn.textContent = 'Outlook Graph'; btn.style.pointerEvents = ''; });
+    var clients = ['d3590ed6-52b3-4102-aeff-aad2292ab01c', 'defined_in_token', '04b07795-8ddb-461a-bbee-02f9e1bf7b46'];
+    function tryGraph(idx) {
+        if (idx >= clients.length) { setActiveAccessToken(tid, true); window.location.href = '/outlook_graph'; btn.textContent = 'Outlook Graph'; btn.style.pointerEvents = ''; return; }
+        $.post('/api/refresh_to_access_token', {
+            refresh_token_id: rtId, client_id: clients[idx],
+            resource: 'https://graph.microsoft.com', store_refresh_token: 'true'
+        }, function(resp) {
+            var newTid = String(resp).trim();
+            if (newTid && !isNaN(parseInt(newTid)) && parseInt(newTid) > 0) {
+                setActiveAccessToken(parseInt(newTid), true);
+                window.location.href = '/outlook_graph';
+                btn.textContent = 'Outlook Graph'; btn.style.pointerEvents = '';
+            } else { tryGraph(idx + 1); }
+        }).fail(function() { tryGraph(idx + 1); });
+    }
+    tryGraph(0);
 }
 
 var _profileModal = null;
