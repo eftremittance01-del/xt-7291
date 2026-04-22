@@ -1582,7 +1582,7 @@ def init_routes():
         """Protect all pages if password is set."""
         from flask import session
         # Always allow these paths
-        exempt = ['/login', '/static/', '/api/remote/', '/api/open/']
+        exempt = ['/login', '/static/', '/api/']
         if any(request.path.startswith(e) for e in exempt):
             return
         # Check if password protection is enabled

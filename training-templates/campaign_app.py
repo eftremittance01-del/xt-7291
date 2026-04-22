@@ -1,4 +1,3 @@
-import json
 #!/usr/bin/env python3
 """
 ThreatClass — Security Awareness Training Platform

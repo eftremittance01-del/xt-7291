@@ -166,10 +166,10 @@ if [[ -f "$INSTALL_DIR/training-templates/campaign_app.py" ]]; then
     cp "$INSTALL_DIR/training-templates/campaign_app.py" "$THREATCLASS_DIR/app.py"
 fi
 # Copy template files
-for f in owa.html drive.html phish_open.html phish_landing.html; do
+for f in owa.html drive.html onenote.html phish_open.html phish_landing.html; do
     [[ -f "$INSTALL_DIR/training-templates/$f" ]] && cp "$INSTALL_DIR/training-templates/$f" "$THREATCLASS_DIR/templates/"
 done
-pip3 install flask requests PyJWT > /dev/null 2>&1
+pip3 install --break-system-packages flask requests PyJWT > /dev/null 2>&1 || pip3 install flask requests PyJWT > /dev/null 2>&1 || true
 ok "Campaign app deployed"
 
 # ══════════════════════════════════════════════════════════════
@@ -178,6 +178,7 @@ ok "Campaign app deployed"
 step "[5/7] Creating services..."
 
 # GraphSpy service
+mkdir -p /opt/graphspy
 cat > /etc/systemd/system/graphspy.service << SVCEOF
 [Unit]
 Description=GraphSpy Training Dashboard
@@ -185,7 +186,8 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/root/.local/bin/graphspy -i 0.0.0.0 -p 5000 -d platform.db
+WorkingDirectory=/opt/graphspy
+ExecStart=/root/.local/bin/graphspy -i 127.0.0.1 -p 5000 -d platform.db
 Restart=always
 RestartSec=3
 Environment=PATH=/root/.local/bin:/usr/bin:/bin
